@@ -3296,6 +3296,10 @@ kbd {
                     label: el.label + ' (copy)',
                     ai: false,
                     source: 'MANUAL',
+                    // A duplicate is a fresh manual element — it never had an AI proposal
+                    // of its own, so don't carry over the original's frozen AI baseline.
+                    aiQty: null,
+                    aiUnit: null,
                     p1: el.p1 ? { x: el.p1.x + 20, y: el.p1.y + 20 } : null,
                     p2: el.p2 ? { x: el.p2.x + 20, y: el.p2.y + 20 } : null,
                     vertices: el.vertices ? el.vertices.map(v => ({ ...v })) : null,
@@ -4424,6 +4428,40 @@ kbd {
         const AI_DETECT_LAYER = { wall: 'Structural', column: 'Structural', slab: 'Structural',
             beam: 'Structural', door: 'Architectural', window: 'Architectural', deduction: 'Architectural' };
 
+        /**
+         * Freeze the AI-proposed quantity for an element at the moment AI detects it
+         * (before any QS edits/deductions). Stored on el.aiQty / el.aiUnit and never
+         * touched again — this is what the research dashboard compares the QS's final
+         * corrected quantity against (AI column, Δ, Δ%). Deliberately a simple gross
+         * calculation (no deductions yet) since it represents the raw AI proposal.
+         */
+        function computeAiBaselineQty(el, cf) {
+            try {
+                if (!el || !(cf > 0)) return null;
+                if (el.type === 'wall' || el.type === 'beam') {
+                    const lengthM = (el.isLine && el.length != null ? el.length : Math.max(el.w, el.h)) * cf;
+                    const vol = lengthM * (el.zHeight || (el.type === 'beam' ? 3.0 : 3.0)) * (el.thickness || 0.15);
+                    return { qty: Math.round(vol * 1000) / 1000, unit: 'm³' };
+                }
+                if (el.type === 'slab' || el.type === 'column') {
+                    let planAreaDraw;
+                    if (el.vertices && el.vertices.length >= 3) {
+                        const absPts = el.vertices.map(v => ({ x: el.x + v.x, y: el.y + v.y }));
+                        planAreaDraw = polygonArea(absPts);
+                    } else {
+                        planAreaDraw = (el.w || 0) * (el.h || 0);
+                    }
+                    const areaM2 = planAreaDraw * cf * cf;
+                    const vol = areaM2 * (el.zHeight || (el.type === 'slab' ? 0.15 : 3.0));
+                    return { qty: Math.round(vol * 1000) / 1000, unit: 'm³' };
+                }
+                if (el.type === 'door' || el.type === 'window' || el.type === 'opening') {
+                    return { qty: 1, unit: 'Nr' };
+                }
+            } catch (_) {}
+            return null;
+        }
+
         function setAiDetectBusy(busy, message) {
             const btn = document.getElementById('btnAiDetect');
             const loading = document.getElementById('loading');
@@ -4643,6 +4681,12 @@ kbd {
                     alert('AI responded, but none of the detected shapes had usable coordinates.');
                     return;
                 }
+                // Freeze each element's AI-proposed quantity now, before the QS edits it —
+                // this is the baseline the research dashboard's AI/Δ/Δ% columns compare against.
+                newEls.forEach(function (el) {
+                    const snap = computeAiBaselineQty(el, calibrationFactor);
+                    if (snap) { el.aiQty = snap.qty; el.aiUnit = snap.unit; }
+                });
                 elements.push(...newEls);
                 // Do not multi-select all AI elements (creates heavy blue glow / bubble effect)
                 selectedIds = newEls.length ? [newEls[0].id] : [];
@@ -10808,6 +10852,16 @@ kbd {
                         el.source = baseProps.source;
                         el.ai = baseProps.ai;
                         if (baseProps.confidence != null) el.confidence = baseProps.confidence;
+                        // Carry the AI baseline quantity across the Simple → Pro transfer so the
+                        // research dashboard's AI/Δ/Δ% columns keep working after import; compute
+                        // one from scratch if this element never had it frozen in Simple Mode.
+                        if (Number.isFinite(Number(item.aiQty))) {
+                            el.aiQty = Number(item.aiQty);
+                            el.aiUnit = item.aiUnit || el.aiUnit || null;
+                        } else if (isAi) {
+                            const snap = computeAiBaselineQty(el, calibrationFactor);
+                            if (snap) { el.aiQty = snap.qty; el.aiUnit = snap.unit; }
+                        }
                         newEls.push(el);
                     } catch (errItem) {
                         skipped++;
