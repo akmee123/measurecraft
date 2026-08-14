@@ -1083,16 +1083,22 @@ function detectionAccuracy(filters = {}) {
 }
 
 function summaryStats() {
-  const measurements = readJsonl(FILES.measurements).filter((m) => !m.superseded);
+  // enrichMeasurementRecord fills in difference/differencePct for any older/partial
+  // rows the same way listMeasurements() does, so this stays consistent with what
+  // the dashboard's own Measurement Records table shows for the same rows.
+  const measurements = readJsonl(FILES.measurements).filter((m) => !m.superseded).map(enrichMeasurementRecord);
   const projects = readJsonl(FILES.projects).filter((p) => !p.superseded);
   const sessions = readJsonl(FILES.sessions);
   const participants = new Set(measurements.map((m) => m.participantId));
   const corrected = measurements.filter((m) => m.userCorrection).length;
-  const withRef = measurements.filter((m) => m.referenceMeasurement != null && m.finalAcceptedMeasurement != null);
+  // Mean % error: use reference where the researcher has supplied it, otherwise fall
+  // back to the AI proposal as the baseline — same reference-first/AI-fallback policy
+  // used everywhere else (differencePct is already computed that way per record).
+  const withBaseline = measurements.filter((m) => m.differencePct != null);
   let meanAbsPct = null;
-  if (withRef.length) {
-    const sum = withRef.reduce((s, m) => s + (Number(m.differencePct) || 0), 0);
-    meanAbsPct = Math.round((sum / withRef.length) * 100) / 100;
+  if (withBaseline.length) {
+    const sum = withBaseline.reduce((s, m) => s + Math.abs(Number(m.differencePct) || 0), 0);
+    meanAbsPct = Math.round((sum / withBaseline.length) * 100) / 100;
   }
   return {
     totalMeasurements: measurements.length,
