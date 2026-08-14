@@ -123,6 +123,7 @@
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <button type="button" id="btnLoadDrawings">List stored drawings</button>
         <button type="button" class="secondary" id="btnTrainingExport">Download training export (JSON)</button>
+        <button type="button" class="secondary" id="btnAnnotationExport">Download annotation export (JSON)</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -457,6 +458,19 @@
       a.click();
       URL.revokeObjectURL(a.href);
     }
+    async function downloadAnnotationExport() {
+      const r = await fetch('/api/research/annotation-export', { headers: headers() });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || ('HTTP ' + r.status));
+      }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'measurecraft-reviewed-annotations.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
     async function loadAll() {
       if ($('authMsg')) $('authMsg').innerHTML = '<div class="hint">Loading…</div>';
       try {
@@ -530,6 +544,10 @@
     }));
     const btnTe = $('btnTrainingExport');
     if (btnTe) btnTe.addEventListener('click', () => downloadTrainingExport().catch((e) => {
+      $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+    }));
+    const btnAe = $('btnAnnotationExport');
+    if (btnAe) btnAe.addEventListener('click', () => downloadAnnotationExport().catch((e) => {
       $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
     }));
     // Restore token from session for convenience (not localStorage — less persistent)
