@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeasureCraft · Mode Selection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg: #EFEBE2;
+            --card-bg: #FFFFFF;
+            --card-border: #DED5C2;
+            --text: #221F1C;
+            --text-secondary: #6B6155;
+            --text-muted: #7A7166;
+            --input-bg: #FBF9F4;
+            --input-border: #DED5C2;
+            --brass: #B8863B;
+            --brass-hover: #96692A;
+            --teal: #2F6E62;
+            --teal-hover: #235349;
+            --brass-glow: rgba(184, 134, 59, 0.16);
+            --teal-glow: rgba(47, 110, 98, 0.14);
+            --radius: 14px;
+            --radius-sm: 8px;
+            --step-bg: rgba(184, 134, 59, 0.12);
+            --step-bg-teal: rgba(47, 110, 98, 0.12);
+        }
+        [data-theme="dark"] {
+            --bg: #16140F;
+            --card-bg: #201D17;
+            --card-border: #4A4338;
+            --text: #F7F1E6;
+            --text-secondary: #C9BFAE;
+            --text-muted: #B8AE9E;
+            --input-bg: #2A261F;
+            --input-border: #4A4338;
+            --brass: #D0A257;
+            --brass-hover: #E0B569;
+            --teal: #5CB8A8;
+            --teal-hover: #73C9BA;
+            --step-bg: rgba(208, 162, 87, 0.22);
+            --step-bg-teal: rgba(92, 184, 168, 0.22);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            background-color: var(--bg);
+            background-image: url('mode-select-bg.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(239, 235, 226, 0.50) 0%, rgba(239, 235, 226, 0.35) 40%, rgba(239, 235, 226, 0.52) 100%);
+            z-index: 0;
+            pointer-events: none;
+            transition: background 0.4s ease;
+        }
+        [data-theme="dark"] body::before {
+            background: linear-gradient(160deg, rgba(22, 20, 15, 0.60) 0%, rgba(22, 20, 15, 0.45) 40%, rgba(22, 20, 15, 0.62) 100%);
+        }
+        .display { font-family: 'Fraunces', serif; }
+
+        .tick-strip {
+            position: fixed; top: 0; left: 0; right: 0; height: 22px; z-index: 2;
+            background: var(--brass); display: flex; align-items: flex-end; overflow: hidden;
+        }
+        .tick-strip span { flex: 1 0 auto; width: 1px; background: rgba(255,255,255,0.55); margin-right: 15px; }
+        .tick-strip span:nth-child(5n) { height: 12px; background: rgba(255,255,255,0.85); }
+        .tick-strip span:not(:nth-child(5n)) { height: 6px; }
+
+        .mode-wrap { position: relative; z-index: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 56px 40px 40px; box-sizing: border-box; }
+        @media (max-width: 720px) { .mode-wrap { padding: 46px 16px 32px; } }
+
+        .app-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 32px; flex-wrap: wrap; gap: 12px; }
+        .brand { display: flex; align-items: center; gap: 13px; }
+        .brand-icon { width: 44px; height: 44px; border-radius: 12px; border: none; background: #0a0a0a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; padding: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+        .brand-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .brand-icon svg { width: 22px; height: 22px; color: #fff; }
+        .brand-text { font-family: 'Fraunces', serif; font-weight: 600; font-size: 19px; letter-spacing: -0.01em; line-height: 1.2; color: var(--text); }
+        .brand-text span { display: block; font-family: 'Work Sans', sans-serif; font-weight: 400; font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .user-chip { display: flex; align-items: center; gap: 8px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 6px 14px 6px 6px; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+        .user-avatar { width: 26px; height: 26px; border-radius: 6px; background: var(--brass); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+        .theme-toggle, .logout-btn {
+            background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 8px 14px;
+            cursor: pointer; color: var(--text-secondary); font-size: 12.5px; font-family: 'Work Sans', sans-serif; font-weight: 500;
+            display: flex; align-items: center; gap: 7px; transition: all 0.2s ease;
+        }
+        .theme-toggle:hover { color: var(--text); border-color: var(--brass); }
+        .logout-btn:hover { color: var(--error, #B23A2E); border-color: rgba(178,58,46,0.3); }
+        .theme-toggle .icon-sun { display: none; } .theme-toggle .icon-moon { display: block; }
+        [data-theme="dark"] .theme-toggle .icon-sun { display: block; } [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+        .hero { text-align: center; margin-bottom: 40px; }
+        .hero h1 { font-family: 'Fraunces', serif; font-size: clamp(30px, 3.5vw, 42px); font-weight: 600; letter-spacing: -0.01em; color: var(--text);
+            text-shadow: 0 1px 2px rgba(255,255,255,0.35), 0 0 24px rgba(239,235,226,0.45);
+        }
+        [data-theme="dark"] .hero h1 {
+            text-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 0 28px rgba(22,20,15,0.55);
+        }
+        .hero p { font-size: 16px; color: var(--text-secondary); margin-top: 12px; max-width: 520px; margin-left: auto; margin-right: auto; line-height: 1.6;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.25);
+        }
+        [data-theme="dark"] .hero p { text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+        .decision-hint {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            max-width: 720px; margin: 0 auto 26px; padding: 11px 16px;
+            border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+            background: var(--card-bg); color: var(--text-secondary); font-size: 13px; line-height: 1.45;
+        }
+        .decision-hint strong { color: var(--text); }
+        .decision-hint .hint-mark { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--teal); color: #fff; font-weight: 700; font-size: 12px; }
+        .mode-fit { margin: -6px 0 18px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+        .mode-fit strong { color: var(--text); }
+
+        .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 8px 0 36px; }
+        @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+        .card {
+            position: relative; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius);
+            overflow: hidden; transition: transform 0.25s ease, box-shadow 0.25s ease; display: flex; flex-direction: column;
+        }
+        .card::before, .card::after { content:''; position:absolute; width:16px; height:16px; pointer-events:none; opacity:0.7; }
+        .card::before { top:-1px; left:-1px; border-top:2px solid; border-left:2px solid; }
+        .card::after { bottom:-1px; right:-1px; border-bottom:2px solid; border-right:2px solid; }
+        .card.simple::before, .card.simple::after { border-color: var(--teal); }
+        .card.pro::before, .card.pro::after { border-color: var(--brass); }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(34,31,28,0.1); }
+
+        .card-content { padding: 32px 28px; position: relative; z-index: 1; display: flex; flex-direction: column; flex: 1; }
+        .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .mode-icon { width: 46px; height: 46px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; }
+        .simple-icon { background: var(--teal); }
+        .pro-icon { background: var(--brass); }
+        .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+        .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; padding: 5px 11px; border-radius: 20px; letter-spacing: 0.05em; text-transform: uppercase; color: #fff; font-family: 'Space Mono', monospace; }
+        .popular { background: var(--teal); }
+        .pro-badge { background: var(--brass); }
+
+        .card h2 { font-family: 'Fraunces', serif; font-size: 25px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.01em; color: var(--text); }
+        .desc { color: var(--text-secondary); font-size: 14px; line-height: 1.65; margin-bottom: 20px; }
+
+        .workflow { background: var(--bg); border-radius: var(--radius-sm); padding: 15px 17px; margin-bottom: 20px; border: 1px solid var(--card-border); }
+        .workflow-header { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; font-family:'Space Mono',monospace; }
+        .workflow-steps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .step { background: var(--step-bg); color: var(--brass-hover); padding: 4px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600; }
+        .simple .step { background: var(--step-bg-teal); color: var(--teal); }
+        .step-arrow { color: var(--text-muted); font-size: 12px; font-weight: 700; }
+
+        .features-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 24px; }
+        .feature-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-secondary); font-weight: 500; line-height: 1.45; }
+        .feature-dot { width: 6px; height: 6px; border-radius: 1px; transform: rotate(45deg); flex-shrink: 0; }
+        .simple-dot { background: var(--teal); }
+        .pro-dot { background: var(--brass); }
+
+        .btn { margin-top: auto; padding: 13px 22px; border-radius: var(--radius-sm); font-weight: 700; font-size: 14.5px; border: 1.5px solid transparent; color: #fff; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; font-family: 'Work Sans', sans-serif; }
+        .btn:hover { transform: translateY(-1px); }
+        .simple-btn { background: var(--teal); }
+        .simple-btn:hover { background: var(--teal-hover); }
+        .pro-btn { background: var(--brass); }
+        .pro-btn:hover { background: var(--brass-hover); }
+
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(22,20,15,0.55); z-index: 1000; justify-content: center; align-items: center; padding: 24px; }
+        .modal-overlay.open { display: flex; }
+        .modal { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 38px 34px; max-width: 440px; width: 100%; text-align: center; position:relative; }
+        .modal::before, .modal::after { content:''; position:absolute; width:16px; height:16px; }
+        .modal::before { top:-1px; left:-1px; border-top:2px solid var(--brass); border-left:2px solid var(--brass); }
+        .modal::after { bottom:-1px; right:-1px; border-bottom:2px solid var(--brass); border-right:2px solid var(--brass); }
+        .modal-icon { width: 52px; height: 52px; border-radius: 10px; background: var(--brass); display: flex; align-items: center; justify-content: center; color: #fff; margin: 0 auto 20px; }
+        .modal h3 { font-family: 'Fraunces', serif; font-size: 23px; font-weight: 600; margin-bottom: 10px; letter-spacing: -0.01em; color: var(--text); }
+        .modal p { color: var(--text-secondary); line-height: 1.65; margin-bottom: 26px; font-size: 14px; }
+        .modal p strong { color: var(--text); font-weight: 600; }
+        .actions { display: flex; gap: 12px; justify-content: center; }
+        .actions button { padding: 11px 22px; border-radius: var(--radius-sm); font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; transition: all 0.2s ease; font-family: 'Work Sans', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-cancel { background: transparent; color: var(--text-secondary); border: 1.5px solid var(--card-border); }
+        .btn-cancel:hover { color: var(--text); border-color: var(--text-muted); }
+        .btn-confirm { background: var(--brass); color: #fff; }
+        .btn-confirm:hover { background: var(--brass-hover); }
+
+            .footer { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 8px; border-top: 1px solid var(--card-border); padding-top: 22px; font-weight: 500; }
+        @media (max-width: 540px) {
+            .decision-hint { align-items: flex-start; text-align: left; }
+        }
+        .footer a { color: var(--text-secondary); text-decoration: none; font-weight: 600; }
+        .footer a:hover { color: var(--brass); }
+
+        @media (max-width: 720px) {
+            .hero h1 { font-size: 28px; }
+            .features-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .app-header { flex-direction: column; align-items: flex-start; }
+            .header-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+            .card-content { padding: 24px 20px; }
+            .hero h1 { font-size: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="tick-strip" id="tickStrip" aria-hidden="true"></div>
+
+    <div class="mode-wrap">
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-icon">
+                    <img src="logo-icon.png" alt="MeasureCraft" width="44" height="44" />
+                </div>
+                <div class="brand-text">MeasureCraft<span>AI-powered element detection &amp; quantity takeoff</span></div>
+            </div>
+            <div class="header-right">
+                <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                    <svg class="icon-moon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <svg class="icon-sun" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <span id="themeLabel">Dark</span>
+                </button>
+                <button type="button" class="logout-btn" id="logoutBtn" title="Sign out">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="hero">
+            <h1>Choose your workspace</h1>
+            <p>Pick Simple Mode for fast AI estimates, or Professional Mode for full quantity takeoff control.</p>
+        </div>
+        <div class="decision-hint" role="note">
+            <span class="hint-mark">?</span>
+            <span><strong>Not sure where to start?</strong> Choose Simple Mode. You can move your drawing and approved detections into Pro Mode later.</span>
+        </div>
+
+        <!-- Research participant ID (user testing) — stored as opaque ID only -->
+        <div class="card" id="participantCard" style="max-width:560px;margin:0 auto 22px;padding:18px 20px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);">
+            <label for="participantId" style="display:block;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:8px;">Participant ID <span style="font-weight:500;text-transform:none;letter-spacing:0;">(required for research testing)</span></label>
+            <input type="text" id="participantId" maxlength="64" placeholder="e.g. P01 or QS-03" autocomplete="off"
+              style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);font:inherit;font-size:15px;" />
+            <p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);line-height:1.45;">
+              Required. One email = one permanent Participant ID. The same ID cannot be used by another account. Use a code (e.g. P01), not your full name.
+            </p>
+            <p id="participantErr" style="display:none;margin:8px 0 0;font-size:12px;color:#B23A2E;font-weight:600;"></p>
+        </div>
+
+        <div class="cards">
+            <div class="card simple" id="cardSimple">
+                <div class="card-content">
+                    <div class="card-header">
+                        <div class="mode-icon simple-icon">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        </div>
+                        <div class="badges">
+                            <span class="badge popular">Most popular</span>
+                        </div>
+                    </div>
+                    <h2>Simple Mode</h2>
+                    <p class="desc">Guided takeoff for clear results: upload a plan, set scale, run AI, review elements, enter rates, and download a BOQ — with plain-language explanations at every step.</p>
+                    <p class="mode-fit"><strong>Best for:</strong> first-time users, quick estimates, and guided review.</p>
+
+                    <div class="workflow">
+                        <div class="workflow-header">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <span>Workflow</span>
+                        </div>
+                        <div class="workflow-steps">
+                            <span class="step">Upload</span><span class="step-arrow">→</span>
+                            <span class="step">Calibrate</span><span class="step-arrow">→</span>
+                            <span class="step">AI</span><span class="step-arrow">→</span>
+                            <span class="step">Review</span><span class="step-arrow">→</span>
+                            <span class="step">Rates</span><span class="step-arrow">→</span>
+                            <span class="step">Export</span>
+                        </div>
+                    </div>
+
+                    <div class="features-grid">
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>Guided 6-step workflow</span></div>
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>2-point scale calibrate</span></div>
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>AI detection + review</span></div>
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>Quantity explanations</span></div>
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>Editable rates &amp; total</span></div>
+                        <div class="feature-item"><div class="feature-dot simple-dot"></div><span>Excel BOQ export</span></div>
+                    </div>
+
+                    <a href="measurecraft_quantity_only.html" class="btn simple-btn" id="btnSimple">
+                        <span>Start with Simple Mode</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </a>
+                </div>
+            </div>
+
+            <div class="card pro" id="cardPro">
+                <div class="card-content">
+                    <div class="card-header">
+                        <div class="mode-icon pro-icon">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                        </div>
+                        <div class="badges">
+                            <span class="badge pro-badge">QS edition</span>
+                        </div>
+                    </div>
+                    <h2>Professional Mode</h2>
+                    <p class="desc">Full takeoff workspace for Quantity Surveyors, engineers, and contractors — AI plus manual tools, deductions, BOQ, and marked drawings.</p>
+                    <p class="mode-fit"><strong>Best for:</strong> experienced QS teams needing manual control and detailed deductions.</p>
+
+                    <div class="workflow">
+                        <div class="workflow-header">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <span>Workflow</span>
+                        </div>
+                        <div class="workflow-steps">
+                            <span class="step">Import</span><span class="step-arrow">→</span>
+                            <span class="step">Calibrate</span><span class="step-arrow">→</span>
+                            <span class="step">Draw</span><span class="step-arrow">→</span>
+                            <span class="step">BOQ</span>
+                        </div>
+                    </div>
+
+                    <div class="features-grid">
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>AI Detection</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Manual measurement tools</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Wall / Beam / Slab / Column</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Cutouts &amp; deductions</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Material library &amp; costs</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Live BOQ table</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Excel + Marked PDF export</span></div>
+                        <div class="feature-item"><div class="feature-dot pro-dot"></div><span>Save / load projects</span></div>
+                    </div>
+
+                    <button type="button" class="btn pro-btn" id="proBtn">
+                        <span>Use Professional Mode</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">&copy; 2026 MeasureCraft · Built for construction professionals · <a href="#">Privacy</a></div>
+    </div>
+
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <div class="modal-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <h3>Professional Mode</h3>
+            <p>Opens the full <strong>Quantity Takeoff Pro</strong> workspace with wall/beam/slab tools, deductions, materials, live quantities, and BOQ / marked-drawing export.</p>
+            <div class="actions">
+                <button type="button" class="btn-cancel" id="modalCancel">Cancel</button>
+                <button type="button" class="btn-confirm" id="modalConfirm">
+                    <span>Continue</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const strip = document.getElementById('tickStrip');
+            for (let i = 0; i < 110; i++) { strip.appendChild(document.createElement('span')); }
+
+            function getSession() {
+                try {
+                    const raw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                    return raw ? JSON.parse(raw) : null;
+                } catch (_) { return null; }
+            }
+            const session = getSession();
+            if (!session || !session.email) {
+                window.location.href = 'login.html';
+                return;
+            }
+            const root = document.documentElement;
+            const themeToggle = document.getElementById('themeToggle');
+            const themeLabel = document.getElementById('themeLabel');
+            const savedTheme = localStorage.getItem('mc-theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                root.setAttribute('data-theme', 'dark');
+                themeLabel.textContent = 'Light';
+            }
+            themeToggle.addEventListener('click', function () {
+                const isDark = root.getAttribute('data-theme') === 'dark';
+                if (isDark) {
+                    root.removeAttribute('data-theme');
+                    localStorage.setItem('mc-theme', 'light');
+                    themeLabel.textContent = 'Dark';
+                } else {
+                    root.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('mc-theme', 'dark');
+                    themeLabel.textContent = 'Light';
+                }
+            });
+
+            document.getElementById('logoutBtn').addEventListener('click', function () {
+                sessionStorage.removeItem('mc-session');
+                localStorage.removeItem('mc-session');
+                window.location.href = 'login.html';
+            });
+
+            const proBtn = document.getElementById('proBtn');
+            const modal = document.getElementById('confirmModal');
+            const cancelBtn = document.getElementById('modalCancel');
+            const confirmBtn = document.getElementById('modalConfirm');
+            const pidInput = document.getElementById('participantId');
+            const pidErr = document.getElementById('participantErr');
+
+            // Restore prior participant ID (research code, or from email/Gmail join session)
+            try {
+                let prev = sessionStorage.getItem('mc-research-participant');
+                if (!prev) {
+                    const raw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                    if (raw) {
+                        const sess = JSON.parse(raw);
+                        if (sess && sess.participantId) prev = sess.participantId;
+                        else if (sess && sess.email) prev = String(sess.email).split('@')[0];
+                    }
+                }
+                if (prev && pidInput) pidInput.value = prev;
+            } catch (_) {}
+
+            function requireParticipantId() {
+                const id = (pidInput && pidInput.value || '').trim();
+                if (!id) {
+                    if (pidErr) {
+                        pidErr.style.display = 'block';
+                        pidErr.textContent = 'Enter a Participant ID before starting (e.g. P01).';
+                    }
+                    if (pidInput) pidInput.focus();
+                    return null;
+                }
+                if (pidErr) pidErr.style.display = 'none';
+                try { sessionStorage.setItem('mc-research-participant', id); } catch (_) {}
+                return id;
+            }
+
+            function sessionEmail() {
+                try {
+                    const raw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                    if (!raw) return null;
+                    const s = JSON.parse(raw);
+                    return (s && s.email) ? String(s.email).trim() : null;
+                } catch (_) { return null; }
+            }
+
+            // Lock field if email already has a permanent Participant ID
+            (function restoreLockedParticipant() {
+                try {
+                    const s = JSON.parse(sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session') || 'null');
+                    if (s && s.participantId && pidInput) {
+                        pidInput.value = s.participantId;
+                        pidInput.readOnly = true;
+                        pidInput.title = 'Participant ID is locked to your email and cannot be changed';
+                        if (pidErr) {
+                            pidErr.style.display = 'block';
+                            pidErr.style.color = '#2f6f66';
+                            pidErr.textContent = 'Participant ID is permanent for your email: ' + s.participantId;
+                        }
+                    }
+                } catch (_) {}
+            })();
+
+            async function beginResearchSession(mode, href) {
+                const id = requireParticipantId();
+                if (!id) return;
+                const email = sessionEmail();
+                // Enforce unique one-time Participant ID server-side
+                try {
+                    const claimResp = await fetch('/api/research/participant/claim', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ participantId: id, email: email }),
+                    });
+                    const claim = await claimResp.json().catch(function () { return {}; });
+                    if (!claimResp.ok || claim.success === false) {
+                        if (pidErr) {
+                            pidErr.style.display = 'block';
+                            pidErr.style.color = '#B23A2E';
+                            pidErr.textContent = claim.error || 'Participant ID is not available.';
+                        }
+                        if (claim.participantId && pidInput) {
+                            pidInput.value = claim.participantId;
+                            pidInput.readOnly = true;
+                        }
+                        return;
+                    }
+                    if (claim.participantId && pidInput) pidInput.value = claim.participantId;
+                } catch (_) { /* allow offline */ }
+
+                try {
+                    await fetch('/api/research/session/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ participantId: (pidInput && pidInput.value) || id, mode: mode }),
+                    }).then(function (r) { return r.json(); }).then(function (data) {
+                        if (data && data.success && data.session) {
+                            sessionStorage.setItem('mc-research-session', JSON.stringify(data.session));
+                            sessionStorage.setItem('mc-research-session-start', String(Date.now()));
+                            sessionStorage.setItem('mc-research-mode', mode === 'pro' ? 'pro' : 'simple');
+                            sessionStorage.setItem('mc-research-participant', (pidInput && pidInput.value) || id);
+                            sessionStorage.removeItem('mc-research-project');
+                        }
+                    }).catch(function () { /* offline / server down — still allow measurement */ });
+                } catch (_) {}
+                window.location.href = href;
+            }
+
+            const btnSimple = document.getElementById('btnSimple');
+            if (btnSimple) {
+                btnSimple.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    beginResearchSession('simple', 'measurecraft_quantity_only.html');
+                });
+            }
+
+            proBtn.addEventListener('click', function () {
+                if (!requireParticipantId()) return;
+                modal.classList.add('open');
+            });
+            function closeModal() { modal.classList.remove('open'); }
+            cancelBtn.addEventListener('click', closeModal);
+            modal.addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+            confirmBtn.addEventListener('click', function () {
+                beginResearchSession('pro', 'takeoff_pro.html');
+            });
+        })();
+    </script>
+
+    <style>
+        .mc-ai-fab{position:fixed;right:20px;bottom:20px;z-index:9990;width:52px;height:52px;border-radius:50%;background:var(--teal);color:#fff;border:none;box-shadow:0 6px 20px rgba(47,110,98,.35);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .25s,opacity .25s}
+        .mc-ai-fab:hover{transform:scale(1.06)}
+        .mc-ai-panel{position:fixed;right:20px;bottom:84px;z-index:9991;width:min(340px,calc(100vw - 32px));background:var(--card-bg);color:var(--text);border:1px solid var(--card-border);border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.35);overflow:hidden;display:none;flex-direction:column;max-height:min(420px,70vh)}
+        .mc-ai-panel.open{display:flex;animation:mcAiIn .22s ease}@keyframes mcAiIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+        .mc-ai-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-weight:600;font-size:14px}
+        .mc-ai-head .mc-ai-actions{display:flex;gap:6px}.mc-ai-head button{background:transparent;border:1px solid var(--card-border);border-radius:6px;width:28px;height:28px;cursor:pointer;color:var(--text-secondary);font-size:14px}
+        .mc-ai-head button:hover{color:var(--text);border-color:var(--brass)}
+        .mc-ai-body{padding:14px;font-size:13px;line-height:1.55;color:var(--text-secondary);overflow-y:auto;flex:1}.mc-ai-body strong{color:var(--text);font-weight:600}
+        .mc-ai-foot{padding:10px 14px;border-top:1px solid var(--card-border);display:flex;gap:8px}
+        .mc-ai-foot input{flex:1;border:1px solid var(--input-border);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--input-bg);color:var(--text);font-family:inherit}
+        .mc-ai-foot input::placeholder{color:var(--text-muted)}
+        .mc-ai-foot button{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer}
+    </style>
+    <button type="button" class="mc-ai-fab" id="mcAiFab" title="AI Assistant" aria-label="Open AI Assistant"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+    <div class="mc-ai-panel" id="mcAiPanel" role="dialog" aria-label="AI Assistant">
+        <div class="mc-ai-head"><span>AI Assistant</span><div class="mc-ai-actions"><button type="button" id="mcAiClose" title="Close">×</button></div></div>
+        <div class="mc-ai-body" id="mcAiBody"><strong>Hi — how can I help?</strong><br><br>Choose Simple or Professional mode. Ask about calibration, tools, or export.</div>
+        <div class="mc-ai-foot"><input type="text" id="mcAiInput" placeholder="Ask something…" autocomplete="off" /><button type="button" id="mcAiSend">Send</button></div>
+    </div>
+    <script>
+        (function(){const fab=document.getElementById('mcAiFab'),panel=document.getElementById('mcAiPanel'),body=document.getElementById('mcAiBody'),input=document.getElementById('mcAiInput');if(!fab||!panel)return;
+        function openPanel(){panel.classList.add('open')}
+        function closePanel(){panel.classList.remove('open')}
+        fab.addEventListener('click',()=>{if(panel.classList.contains('open'))closePanel();else openPanel()});
+        document.getElementById('mcAiClose').addEventListener('click',closePanel);
+        let mcAiHistory=[];
+        function escapeMc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+        function mcAiHeaders(){const h={'Content-Type':'application/json'};try{const tok=localStorage.getItem('mc-api-token')||sessionStorage.getItem('mc-api-token');if(tok)h['X-MC-Token']=tok}catch(_){}return h}
+        function offlineReply(q){const l=(q||'').toLowerCase();let r='I can help with modes, calibration, and takeoff tools.';if(l.includes('simple'))r='Simple Mode guides you: upload → calibrate → AI detect → quantities → export.';else if(l.includes('pro')||l.includes('professional'))r='Professional Mode has full tools: walls, slabs, beams, layers, 3D, BOQ export.';else if(l.includes('calibr'))r='Calibrate with two points on a known length, enter real metres, then apply.';return r}
+        async function reply(q){
+            const thinkId='mcAiThink'+Date.now();
+            body.innerHTML+='<br><br><strong>You:</strong> '+escapeMc(q)+'<br><strong>AI:</strong> <span id="'+thinkId+'">…</span>';
+            body.scrollTop=body.scrollHeight;
+            const slot=document.getElementById(thinkId);
+            let answer=null;
+            try{
+                const resp=await fetch('/api/assistant-chat',{method:'POST',headers:mcAiHeaders(),body:JSON.stringify({message:q,history:mcAiHistory})});
+                const data=await resp.json().catch(()=>({}));
+                if(resp.ok&&data&&data.success&&data.answer)answer=data.answer;
+            }catch(_){}
+            const finalText=answer||offlineReply(q);
+            if(slot)slot.textContent=finalText;
+            if(answer){mcAiHistory.push({role:'user',text:q},{role:'assistant',text:answer});if(mcAiHistory.length>12)mcAiHistory=mcAiHistory.slice(-12)}
+            body.scrollTop=body.scrollHeight;
+        }
+        document.getElementById('mcAiSend').addEventListener('click',()=>{const q=(input.value||'').trim();if(!q)return;input.value='';reply(q)});
+        input.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('mcAiSend').click()});
+        })();
+    </script>
+</body>
+</html>

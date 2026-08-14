@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeasureCraft — Research Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f4f1ea; --card: #fffcf7; --ink: #1a2332; --muted: #5c6b7a;
+      --border: #d9d0c0; --teal: #2f6f66; --brass: #b8863b; --danger: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Work Sans', system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    header {
+      background: #1a2332; color: #f4f1ea; padding: 14px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    header h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.04em; }
+    header .sub { font-size: 12px; opacity: 0.75; }
+    main { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .stat { background: #f0ebe1; border-radius: 10px; padding: 12px 14px; }
+    .stat .v { font-family: 'Space Mono', monospace; font-size: 22px; font-weight: 700; color: var(--teal); }
+    .stat .l { font-size: 11px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    input, select {
+      font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: #fff; min-width: 140px; color: var(--ink);
+    }
+    button {
+      font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 8px; border: none;
+      cursor: pointer; background: var(--teal); color: #fff;
+    }
+    button.secondary { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .auth-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); position: sticky; top: 0; background: var(--card); }
+    .table-wrap { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+    .badge.simple { background: #dbeafe; color: #1e40af; }
+    .btn-del{background:#b91c1c;color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;font-weight:600;}.btn-del:hover{opacity:.9}.badge.pro { background: #d1fae5; color: #065f46; }
+    .badge.yes { background: #fee2e2; color: #991b1b; }
+    .badge.no { background: #e5e7eb; color: #374151; }
+    .err { color: var(--danger); font-size: 13px; margin-top: 8px; }
+    .ok { color: var(--teal); font-size: 13px; margin-top: 8px; }
+    .mono { font-family: 'Space Mono', monospace; font-size: 11px; }
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    a { color: var(--teal); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>MEASURECRAFT · RESEARCH DASHBOARD</h1>
+      <div class="sub">Participant measurements · AI vs reference comparison · export for analysis</div>
+    </div>
+    <div class="sub">Not public · researcher access only</div>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Access</h2>
+      <div class="auth-row">
+        <label>Research admin token
+          <input type="password" id="token" placeholder="RESEARCH_ADMIN_TOKEN" autocomplete="off" />
+        </label>
+        <button type="button" id="btnLoad">Load data</button>
+        <button type="button" class="secondary" id="btnExportCsv">Export CSV</button>
+        <button type="button" class="secondary" id="btnExportJson">Export JSON</button>
+      </div>
+      <p class="hint" style="margin:10px 0 0;">
+        Set <code>RESEARCH_ADMIN_TOKEN</code> in the server environment. Pass it here as <code>X-Research-Token</code>.
+        Drawings and measurement JSONL live under the server <code>data/</code> folder (not in GitHub).
+        Google Sheets sync is optional via <code>GOOGLE_SHEETS_WEBHOOK_URL</code>.
+      </p>
+      <div id="authMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Summary</h2>
+      <div class="stats" id="stats">
+        <div class="stat"><div class="v" id="sMeas">—</div><div class="l">Measurements</div></div>
+        <div class="stat"><div class="v" id="sProj">—</div><div class="l">Projects / drawings</div></div>
+        <div class="stat"><div class="v" id="sPart">—</div><div class="l">Participants</div></div>
+        <div class="stat"><div class="v" id="sSimple">—</div><div class="l">Simple mode</div></div>
+        <div class="stat"><div class="v" id="sPro">—</div><div class="l">Pro mode</div></div>
+        <div class="stat"><div class="v" id="sCorr">—</div><div class="l">User corrections %</div></div>
+        <div class="stat"><div class="v" id="sErr">—</div><div class="l">Mean |% err| vs ref</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>AI detection baseline</h2>
+      <p class="hint" style="margin:0 0 12px;">Computed from exports that preserve raw AI proposals and QS-reviewed geometry. Precision and recall use one-to-one bounding-box matching at the selected IoU threshold; quantity error is the mean absolute percentage error from reviewed measurement records.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:end;">
+        <label>IoU threshold
+          <input id="iouThreshold" type="number" min="0.1" max="0.95" step="0.05" value="0.50" />
+        </label>
+        <button type="button" id="btnAccuracy">Calculate baseline</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Element type</th><th>Drawings</th><th>AI marked</th><th>Confirmed</th><th>Precision</th><th>Recall</th><th>Quantity error</th></tr></thead><tbody id="tbodyAccuracy"></tbody></table>
+      </div>
+      <p class="hint" id="accuracyMeta" style="margin-top:10px;"></p>
+    </div>
+
+    <div class="card">
+      <h2>Drawings database &amp; AI training</h2>
+      <p class="hint" style="margin:0 0 12px;line-height:1.45;">
+        Uploaded plans are stored on the server under <code>data/drawings/</code> (not in Git by default).
+        Download files here, review them manually, then commit only <strong>approved</strong> drawings to a private GitHub folder.
+        Human Pro measurements and corrections are the ground truth for improving AI accuracy offline —
+        this app does <strong>not</strong> auto-train Gemini; use the training export in your own model pipeline.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <button type="button" id="btnLoadDrawings">List stored drawings</button>
+        <button type="button" class="secondary" id="btnTrainingExport">Download training export (JSON)</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Drawing ID</th>
+              <th>Participant</th>
+              <th>Mode</th>
+              <th>Project ID(s)</th>
+              <th>Original file name</th>
+              <th>Size</th>
+              <th>Uploaded</th>
+              <th>Original</th>
+              <th>Marked plan</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyDrawings"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="dwgCount" style="margin-top:10px;"></p>
+    </div>
+
+    <div class="card">
+      <h2>Filters</h2>
+      <div class="filters">
+        <label>Participant ID
+          <input id="fPart" placeholder="e.g. P01" />
+        </label>
+        <label>Mode
+          <select id="fMode">
+            <option value="">All</option>
+            <option value="simple">Simple</option>
+            <option value="pro">Pro</option>
+          </select>
+        </label>
+        <label>Drawing ID
+          <input id="fDwg" placeholder="DWG-0001" />
+        </label>
+        <label>Measurement type
+          <input id="fType" placeholder="wall / slab / …" />
+        </label>
+        <label>Corrections only
+          <select id="fCorr">
+            <option value="">All</option>
+            <option value="true">Yes</option>
+          </select>
+        </label>
+        <button type="button" id="btnFilter">Apply filters</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Projects / drawings</h2>
+      <p class="hint" style="margin:0 0 10px;">Drawing ID stays the same across modes. Simple original is <code>PROJ-0001</code>; after export → Switch to Pro creates <code>PROJ-0001/A</code> (parent kept). Direct Pro is also an ORIGINAL project ID.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Project ID</th>
+              <th>Drawing ID</th>
+              <th>Participant</th>
+              <th>Mode</th>
+              <th>Name</th>
+              <th>File</th>
+              <th>Revision</th>
+              <th>Parent Project</th>
+              <th>Uploaded</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyProjects"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="projCount" style="margin-top:10px;"></p>
+    </div>
+
+    <div class="card">
+      <h2>Measurement records</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Record</th>
+              <th>Participant</th>
+              <th>Mode</th>
+              <th>Type</th>
+              <th>Reference</th>
+              <th>AI</th>
+              <th>User</th>
+              <th>Final</th>
+              <th>Unit</th>
+              <th>Δ</th>
+              <th>Δ%</th>
+              <th>Corrected</th>
+              <th>Duration (s)</th>
+              <th>Project / Drawing</th>
+              <th>Notes</th>
+              <th>Delete</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="rowCount" style="margin-top:10px;"></p>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function token() { return ($('token').value || '').trim(); }
+    function headers() {
+      const h = { 'Accept': 'application/json' };
+      const t = token();
+      if (t) {
+        h['X-Research-Token'] = t;
+        // Some proxies strip custom headers — also send as Bearer
+        h['Authorization'] = 'Bearer ' + t;
+      }
+      return h;
+    }
+    function qs() {
+      const p = new URLSearchParams();
+      if ($('fPart').value.trim()) p.set('participantId', $('fPart').value.trim());
+      if ($('fMode').value) p.set('mode', $('fMode').value);
+      if ($('fDwg').value.trim()) p.set('drawingId', $('fDwg').value.trim());
+      if ($('fType').value.trim()) p.set('measurementType', $('fType').value.trim());
+      if ($('fCorr').value) p.set('userCorrection', $('fCorr').value);
+      p.set('limit', '1000');
+      return p.toString();
+    }
+    function fmt(n) {
+      if (n == null || n === '') return '—';
+      if (typeof n === 'number') return Number.isInteger(n) ? String(n) : n.toFixed(3);
+      return String(n);
+    }
+    function fmtPct(n) {
+      if (n == null || n === '') return '—';
+      const v = Number(n);
+      return Number.isFinite(v) ? v + '%' : '—';
+    }
+    function safeText(v, fallback) {
+      const s = String(v == null ? '' : v).trim();
+      return s || (fallback || '—');
+    }
+    async function loadSummary() {
+      const r = await fetch('/api/research/summary', { headers: headers() });
+      let data = {};
+      try { data = await r.json(); } catch (_) {}
+      if (!r.ok || data.success === false) {
+        throw new Error(data.error || ('Summary failed (HTTP ' + r.status + '). Check RESEARCH_ADMIN_TOKEN matches the value in Render Environment.'));
+      }
+      const s = data.summary || {};
+      if ($('sMeas')) $('sMeas').textContent = s.totalMeasurements != null ? s.totalMeasurements : 0;
+      if ($('sProj')) $('sProj').textContent = s.totalProjects != null ? s.totalProjects : 0;
+      if ($('sPart')) $('sPart').textContent = s.uniqueParticipants != null ? s.uniqueParticipants : 0;
+      if ($('sSimple')) $('sSimple').textContent = s.simpleCount != null ? s.simpleCount : 0;
+      if ($('sPro')) $('sPro').textContent = s.proCount != null ? s.proCount : 0;
+      if ($('sCorr')) $('sCorr').textContent = (s.correctionRate != null ? s.correctionRate : 0) + '%';
+      if ($('sErr')) $('sErr').textContent = s.meanAbsPctErrorVsReference != null ? s.meanAbsPctErrorVsReference + '%' : '—';
+      return s;
+    }
+    async function loadProjects() {
+      const r = await fetch('/api/research/projects?limit=500', { headers: headers() });
+      const data = await r.json();
+      if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
+      const tb = $('tbodyProjects');
+      if (!tb) return;
+      tb.innerHTML = '';
+      (data.projects || []).forEach((p) => {
+        if (p.superseded) return;
+        const tr = document.createElement('tr');
+        const modeBadge = (String(p.mode || '').toLowerCase() === 'pro')
+          ? '<span class="badge pro">Pro</span>'
+          : '<span class="badge simple">Simple</span>';
+        tr.innerHTML = `
+          <td class="mono">${p.projectId || ''}</td>
+          <td class="mono">${p.drawingId || ''}</td>
+          <td>${p.participantId || ''}</td>
+          <td>${modeBadge}</td>
+          <td>${(p.projectName || '').slice(0, 40)}</td>
+          <td>${(p.fileName || '').slice(0, 40)}</td>
+          <td class="mono">${p.revision || 'ORIGINAL'}</td>
+          <td class="mono">${p.parentProjectId || '—'}</td>
+          <td class="mono">${(p.uploadedAt || '').slice(0, 19)}</td>`;
+        tb.appendChild(tr);
+      });
+      if ($('projCount')) $('projCount').textContent = (tb.children.length) + ' active project(s)';
+    }
+    async function loadRecords() {
+      const r = await fetch('/api/research/records?' + qs(), { headers: headers() });
+      let data = {};
+      try { data = await r.json(); } catch (_) {}
+      if (!r.ok || data.success === false) {
+        throw new Error(data.error || ('Records failed (HTTP ' + r.status + ')'));
+      }
+      const tb = $('tbody');
+      if (!tb) return;
+      tb.innerHTML = '';
+      (data.records || []).forEach((row) => {
+        const tr = document.createElement('tr');
+        const modeBadge = row.measurementMode === 'Pro'
+          ? '<span class="badge pro">Pro</span>'
+          : '<span class="badge simple">Simple</span>';
+        const corr = row.userCorrection
+          ? '<span class="badge yes">Yes</span>'
+          : '<span class="badge no">No</span>';
+        tr.innerHTML = `
+          <td class="mono">${row.recordId || ''}</td>
+          <td>${row.participantId || ''}</td>
+          <td>${modeBadge}</td>
+          <td>${row.measurementType || ''}</td>
+          <td>${fmt(row.referenceMeasurement)}</td>
+          <td>${fmt(row.aiMeasurement)}</td>
+          <td>${fmt(row.userMeasurement)}</td>
+          <td><strong>${fmt(row.finalAcceptedMeasurement)}</strong></td>
+          <td>${safeText(row.unit)}</td>
+          <td>${fmt(row.difference)}</td>
+          <td>${fmtPct(row.differencePct)}</td>
+          <td>${corr}</td>
+          <td>${fmt(row.measurementDurationSec)}</td>
+          <td class="mono">${row.projectId || '—'} / ${row.drawingId || '—'}</td>
+          <td>${safeText(row.notes, 'No additional notes')}</td>
+          <td><button type="button" class="btn-del" data-id="${row.recordId || ''}">Delete</button></td>`;
+        tb.appendChild(tr);
+      });
+      tb.querySelectorAll('.btn-del').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-id');
+          if (!id) return;
+          if (!confirm('Delete measurement record ' + id + '? This cannot be undone.')) return;
+          try {
+            const r = await fetch('/api/research/records/delete', {
+              method: 'POST',
+              headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
+              body: JSON.stringify({ recordIds: [id] }),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
+            await loadSummary();
+            await loadRecords();
+            $('authMsg').innerHTML = '<div class="ok">Deleted ' + (data.deleted || 1) + ' record(s).</div>';
+          } catch (e) {
+            $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+          }
+        });
+      });
+      $('rowCount').textContent = (data.records || []).length + ' record(s) shown';
+    }
+
+    async function loadDrawingsList() {
+      const r = await fetch('/api/research/drawings', { headers: headers() });
+      const data = await r.json();
+      if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
+      const tb = $('tbodyDrawings');
+      if (!tb) return;
+      tb.innerHTML = '';
+      (data.drawings || []).forEach((d) => {
+        const tr = document.createElement('tr');
+        const hrefOrig = '/api/research/drawing/' + encodeURIComponent(d.drawingId || '');
+        const hrefMarked = '/api/research/drawing/' + encodeURIComponent(d.drawingId || '') + '/marked';
+        const hasOrig = !!(d.storedPath);
+        const hasMarked = !!d.hasMarked;
+        const modeStr = d.mode || (d.modes && d.modes.join(' + ')) || '—';
+        const projStr = (d.projectIds && d.projectIds.length)
+          ? d.projectIds.join(', ')
+          : (d.projectId || '—');
+        tr.innerHTML = `
+          <td class="mono">${d.drawingId || ''}</td>
+          <td>${d.participantId || ''}</td>
+          <td>${modeStr}</td>
+          <td class="mono" style="font-size:11px;">${projStr}</td>
+          <td>${(d.fileName || '').slice(0, 40)}</td>
+          <td>${d.byteSize != null ? d.byteSize : '—'}</td>
+          <td class="mono">${(d.uploadedAt || '').slice(0, 19)}</td>
+          <td>${hasOrig ? '<a href="' + hrefOrig + '" data-kind="orig" rel="noopener">Original</a>' : '—'}</td>
+          <td>${hasMarked ? '<a href="' + hrefMarked + '" data-kind="marked" rel="noopener">Marked plan</a>' : '<span class="hint">Not exported yet</span>'}</td>`;
+        tr.querySelectorAll('a').forEach((a) => {
+          a.addEventListener('click', async (ev) => {
+            ev.preventDefault();
+            const kind = a.getAttribute('data-kind');
+            const href = kind === 'marked' ? hrefMarked : hrefOrig;
+            try {
+              const rr = await fetch(href, { headers: headers() });
+              if (!rr.ok) throw new Error('Download failed (' + rr.status + ')');
+              const blob = await rr.blob();
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = kind === 'marked'
+                ? ((d.drawingId || 'drawing') + '_marked.jpg')
+                : ((d.drawingId || 'drawing') + '_' + (d.fileName || 'plan.jpg'));
+              link.click();
+              URL.revokeObjectURL(url);
+            } catch (e) {
+              $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+            }
+          });
+        });
+        tb.appendChild(tr);
+      });
+      if ($('dwgCount')) {
+        const markedN = (data.drawings || []).filter((x) => x.hasMarked).length;
+        $('dwgCount').textContent = (data.drawings || []).length + ' drawing(s) · '
+          + markedN + ' with marked plan · path: ' + (data.storagePath || 'data/drawings');
+      }
+    }
+
+    async function loadAccuracy() {
+      const threshold = Math.max(0.1, Math.min(0.95, Number($('iouThreshold').value) || 0.5));
+      const r = await fetch('/api/research/accuracy-baseline?iouThreshold=' + encodeURIComponent(threshold), { headers: headers() });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || ('Accuracy baseline failed (HTTP ' + r.status + ')'));
+      const accuracy = data.accuracy || {};
+      const tb = $('tbodyAccuracy'); tb.innerHTML = '';
+      (accuracy.byType || []).forEach((s) => {
+        const tr = document.createElement('tr');
+        const pct = (v) => v == null ? '—' : v + '%';
+        tr.innerHTML = '<td><strong>' + s.type + '</strong></td><td>' + s.drawings + '</td><td>' + s.aiMarked + '</td><td>' + s.confirmed + '</td><td>' + pct(s.precision) + '</td><td>' + pct(s.recall) + '</td><td>' + pct(s.quantityErrorPct) + '</td>';
+        tb.appendChild(tr);
+      });
+      $('accuracyMeta').textContent = (accuracy.annotationDrawings || 0) + ' drawing annotation set(s) included · IoU threshold ' + accuracy.iouThreshold + '. ' + (accuracy.note || '');
+    }
+
+    async function downloadTrainingExport() {
+      const r = await fetch('/api/research/training-export', { headers: headers() });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || ('HTTP ' + r.status));
+      }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'measurecraft-training-export.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function loadAll() {
+      if ($('authMsg')) $('authMsg').innerHTML = '<div class="hint">Loading…</div>';
+      try {
+        // Remember token for this browser tab
+        try {
+          const t = token();
+          if (t) sessionStorage.setItem('mc-research-token', t);
+        } catch (_) {}
+
+        const summary = await loadSummary();
+        await loadProjects();
+        try { await loadDrawingsList(); } catch (dwgErr) {
+          console.warn('drawings list', dwgErr);
+        }
+        await loadRecords();
+
+        const n = summary && summary.totalMeasurements != null ? summary.totalMeasurements : 0;
+        if (n === 0) {
+          $('authMsg').innerHTML = '<div class="ok">Connected — but <strong>0 measurements</strong> on this server yet.</div>' +
+            '<p class="hint" style="margin-top:8px;">On free Render, data is wiped when the service redeploys. ' +
+            'Use the same live URL participants used, enter Participant ID on mode select, complete a takeoff/export, then Load again. ' +
+            'Or wire Google Sheets for lasting storage.</p>';
+        } else {
+          const tip = (!$('fMode').value && !$('fDwg').value.trim())
+            ? ' Showing all modes. Clear Drawing ID filter to compare Simple vs Pro on the same plan.'
+            : '';
+          $('authMsg').innerHTML = '<div class="ok">Data loaded — ' + n + ' measurement(s).' + tip + '</div>';
+        }
+      } catch (e) {
+        const msg = String(e.message || e);
+        let help = '';
+        if (/unauthorized|token|401/i.test(msg)) {
+          help = '<p class="hint" style="margin-top:8px;">Enter the exact <code>RESEARCH_ADMIN_TOKEN</code> from Render → Environment (no extra spaces). If that variable is empty on the server, leave the token box empty and try again.</p>';
+        }
+        $('authMsg').innerHTML = '<div class="err">' + msg + '</div>' + help;
+      }
+    }
+    function exportUrl(format) {
+      const p = qs() + (qs() ? '&' : '') + 'format=' + format;
+      return '/api/research/export?' + p;
+    }
+    async function downloadExport(format) {
+      try {
+        const r = await fetch(exportUrl(format), { headers: headers() });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || ('HTTP ' + r.status));
+        }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = format === 'json' ? 'measurecraft-research.json' : 'measurecraft-research.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+      }
+    }
+    $('btnLoad').addEventListener('click', loadAll);
+    $('btnAccuracy').addEventListener('click', () => loadAccuracy().catch((e) => {
+      $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+    }));
+    $('btnFilter').addEventListener('click', () => loadRecords().catch((e) => {
+      $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+    }));
+    $('btnExportCsv').addEventListener('click', () => downloadExport('csv'));
+    $('btnExportJson').addEventListener('click', () => downloadExport('json'));
+    const btnLd = $('btnLoadDrawings');
+    if (btnLd) btnLd.addEventListener('click', () => loadDrawingsList().catch((e) => {
+      $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+    }));
+    const btnTe = $('btnTrainingExport');
+    if (btnTe) btnTe.addEventListener('click', () => downloadTrainingExport().catch((e) => {
+      $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+    }));
+    // Restore token from session for convenience (not localStorage — less persistent)
+    try {
+      const t = sessionStorage.getItem('mc-research-token');
+      if (t) $('token').value = t;
+    } catch (_) {}
+    $('token').addEventListener('change', () => {
+      try { sessionStorage.setItem('mc-research-token', token()); } catch (_) {}
+    });
+  </script>
+</body>
+</html>

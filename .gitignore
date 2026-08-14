@@ -1,0 +1,6 @@
+node_modules/
+.env
+.DS_Store
+data/research/*.jsonl
+data/research/email-bindings.json
+*.log

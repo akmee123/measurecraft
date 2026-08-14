@@ -1,0 +1,1270 @@
+/**
+ * MeasureCraft Research Data Store
+ * -----------------------------
+ * Collects drawings + measurement records for academic user testing.
+ * - Local JSONL + original drawing files (review before any AI training)
+ * - Optional Google Sheets webhook append (GOOGLE_SHEETS_WEBHOOK_URL)
+ * - Never auto-trains AI; data is for researcher review only
+ */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const researchStorage = require('./research-storage');
+
+const DATA_ROOT = process.env.RESEARCH_DATA_DIR
+  ? path.resolve(process.env.RESEARCH_DATA_DIR)
+  : path.join(__dirname, 'data');
+const DRAWINGS_DIR = path.join(DATA_ROOT, 'drawings');
+const RESEARCH_DIR = path.join(DATA_ROOT, 'research');
+const ANNOTATIONS_DIR = path.join(RESEARCH_DIR, 'annotations');
+
+const FILES = {
+  projects: path.join(RESEARCH_DIR, 'projects.jsonl'),
+  measurements: path.join(RESEARCH_DIR, 'measurements.jsonl'),
+  sessions: path.join(RESEARCH_DIR, 'sessions.jsonl'),
+  emailBindings: path.join(RESEARCH_DIR, 'email-bindings.json'),
+  elementEvents: path.join(RESEARCH_DIR, 'element-events.jsonl'),
+  counter: path.join(RESEARCH_DIR, 'counters.json'),
+};
+
+researchStorage.configure(DATA_ROOT);
+
+function persistWrite(file, data, encoding) {
+  fs.writeFileSync(file, data, encoding);
+  // Fire-and-forget: local write is already durable on disk, so the request
+  // path doesn't wait on the network round trip to S3. Failures are logged
+  // inside mirrorFile itself.
+  researchStorage.mirrorFile(file);
+}
+
+function persistAppend(file, data, encoding) {
+  fs.appendFileSync(file, data, encoding);
+  researchStorage.mirrorFile(file);
+}
+
+function ensureDataDirs() {
+  for (const d of [DATA_ROOT, DRAWINGS_DIR, RESEARCH_DIR, ANNOTATIONS_DIR]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
+}
+
+// Awaited once at server startup (see server.js), BEFORE the app starts
+// accepting requests, so the local cache is populated from S3 first. Order
+// matters: if we created empty local placeholder files before hydrating,
+// ensureDirs() below would see them as "already exist" and skip filling
+// them from S3, and mirrorFile could even push an empty file up and
+// clobber real data. So: make dirs -> pull from S3 -> only then fill in
+// any files still missing (i.e. truly new / never synced before).
+// Safe to call more than once — hydrateFromS3() is a no-op after the first
+// successful (or failed) run.
+async function hydrateFromRemote() {
+  ensureDataDirs();
+  await researchStorage.hydrateFromS3();
+  ensureDirs();
+}
+
+function ensureDirs() {
+  ensureDataDirs();
+  for (const f of Object.values(FILES)) {
+    if (f.endsWith('.jsonl') && !fs.existsSync(f)) persistWrite(f, '', 'utf8');
+  }
+  if (!fs.existsSync(FILES.counter)) {
+    persistWrite(FILES.counter, JSON.stringify({
+      project: 0, drawing: 0, record: 0, session: 0,
+    }, null, 2));
+  }
+}
+
+function nextId(kind) {
+  ensureDirs();
+  let counters = { project: 0, drawing: 0, record: 0, session: 0 };
+  try {
+    counters = JSON.parse(fs.readFileSync(FILES.counter, 'utf8'));
+  } catch (_) {}
+  const key = kind === 'project' ? 'project'
+    : kind === 'drawing' ? 'drawing'
+    : kind === 'session' ? 'session'
+    : 'record';
+  counters[key] = (Number(counters[key]) || 0) + 1;
+  persistWrite(FILES.counter, JSON.stringify(counters, null, 2));
+  const n = counters[key];
+  if (kind === 'project') return 'PROJ-' + String(n).padStart(4, '0');
+  if (kind === 'drawing') return 'DWG-' + String(n).padStart(4, '0');
+  if (kind === 'session') return 'SES-' + String(n).padStart(4, '0');
+  return 'REC-' + String(n).padStart(4, '0');
+}
+
+function appendJsonl(file, obj) {
+  ensureDirs();
+  persistAppend(file, JSON.stringify(obj) + '\n', 'utf8');
+}
+
+function readJsonl(file) {
+  ensureDirs();
+  if (!fs.existsSync(file)) return [];
+  const text = fs.readFileSync(file, 'utf8');
+  return text.split('\n').filter(Boolean).map((line) => {
+    try { return JSON.parse(line); } catch (_) { return null; }
+  }).filter(Boolean);
+}
+
+function sanitizeParticipant(raw) {
+  const s = String(raw || '').trim().slice(0, 64);
+  // Prefer opaque IDs; strip characters that could be PII-heavy paths
+  return s.replace(/[<>"'\\]/g, '') || 'ANON';
+}
+
+// drawingId is only ever generated server-side as "DWG-0001" (see nextId()),
+// but it's also accepted from unauthenticated request bodies (e.g. the
+// marked-drawing upload) and gets used to build a filesystem path. Reject
+// anything that isn't that exact shape so a crafted value like
+// "../../../etc/passwd" can never reach path.join() as a path segment.
+const DRAWING_ID_RE = /^DWG-\d{1,10}$/;
+function sanitizeDrawingId(raw) {
+  const s = String(raw || '').trim();
+  return DRAWING_ID_RE.test(s) ? s : null;
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+/** One email → one participant ID for the whole study. */
+function readEmailBindings() {
+  ensureDirs();
+  try {
+    return JSON.parse(fs.readFileSync(FILES.emailBindings, 'utf8'));
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeEmailBindings(map) {
+  ensureDirs();
+  persistWrite(FILES.emailBindings, JSON.stringify(map, null, 2), 'utf8');
+}
+
+/**
+ * Bind email ↔ participantId (one-time, unique both ways).
+ * Rules:
+ *  - Participant ID is required for new accounts
+ *  - One email → exactly one Participant ID (cannot create additional IDs)
+ *  - One Participant ID → exactly one email (no reuse)
+ *  - If email already bound, return that ID only when it matches (or when no ID sent)
+ */
+function bindEmailToParticipant(email, participantId) {
+  const e = normalizeEmail(email);
+  if (!e || !e.includes('@')) {
+    return { ok: false, error: 'Valid email is required' };
+  }
+  const pid = participantId ? sanitizeParticipant(participantId) : null;
+  const map = readEmailBindings(); // { email: participantId }
+  const existing = map[e];
+
+  // Email already has a permanent Participant ID — cannot create another
+  if (existing) {
+    if (pid && pid !== existing) {
+      return {
+        ok: false,
+        error: 'This email is already linked to Participant ID "' + existing + '". One email cannot create more Participant IDs.',
+        participantId: existing,
+      };
+    }
+    return { ok: true, participantId: existing, alreadyBound: true };
+  }
+
+  // New email: Participant ID is compulsory (no auto-assign from email)
+  if (!pid) {
+    return { ok: false, error: 'Participant ID is required. Choose a unique ID (e.g. P01 or QS-03).' };
+  }
+
+  // Participant ID must not already belong to another email
+  for (const [otherEmail, otherPid] of Object.entries(map)) {
+    if (otherPid === pid && otherEmail !== e) {
+      return {
+        ok: false,
+        error: 'Participant ID "' + pid + '" already exists. Choose a different unique ID.',
+        participantId: null,
+      };
+    }
+  }
+
+  map[e] = pid;
+  writeEmailBindings(map);
+  return { ok: true, participantId: pid, alreadyBound: false };
+}
+
+function getParticipantForEmail(email) {
+  const map = readEmailBindings();
+  return map[normalizeEmail(email)] || null;
+}
+
+function getEmailForParticipant(participantId) {
+  const pid = sanitizeParticipant(participantId);
+  if (!pid) return null;
+  const map = readEmailBindings();
+  for (const [email, p] of Object.entries(map)) {
+    if (p === pid) return email;
+  }
+  return null;
+}
+
+/** Claim participant ID for mode-select when session already has email binding. */
+function assertParticipantAvailable(participantId, email) {
+  const pid = sanitizeParticipant(participantId);
+  if (!pid) return { ok: false, error: 'Participant ID is required' };
+  const map = readEmailBindings();
+  const e = email ? normalizeEmail(email) : null;
+  if (e && map[e] && map[e] !== pid) {
+    return {
+      ok: false,
+      error: 'Your email is locked to Participant ID "' + map[e] + '". You cannot use a different ID.',
+      participantId: map[e],
+    };
+  }
+  for (const [otherEmail, otherPid] of Object.entries(map)) {
+    if (otherPid === pid && (!e || otherEmail !== e)) {
+      return {
+        ok: false,
+        error: 'Participant ID "' + pid + '" is already registered to another account.',
+      };
+    }
+  }
+  // If email known and unbound, bind now
+  if (e && !map[e]) {
+    map[e] = pid;
+    writeEmailBindings(map);
+    return { ok: true, participantId: pid, bound: true };
+  }
+  return { ok: true, participantId: pid };
+}
+
+function deleteMeasurementRecords(recordIds) {
+  const ids = new Set((recordIds || []).map(String).filter(Boolean));
+  if (!ids.size) return { deleted: 0 };
+  const rows = readJsonl(FILES.measurements);
+  const kept = rows.filter((r) => !ids.has(String(r.recordId)));
+  const deleted = rows.length - kept.length;
+  if (deleted) rewriteJsonl(FILES.measurements, kept);
+  return { deleted, remaining: kept.length };
+}
+
+/**
+ * Real-time element lifecycle event (accept / reject / edit / add / delete).
+ * Logged as the QS works — does not wait for export.
+ */
+function logElementEvent(payload) {
+  ensureDirs();
+  const action = String((payload && payload.action) || '').trim().toLowerCase();
+  const allowed = new Set(['accept', 'reject', 'edit', 'add', 'delete', 'detect', 'snapshot']);
+  if (!allowed.has(action)) {
+    throw new Error('Invalid element event action');
+  }
+  const participantId = sanitizeParticipant(payload && payload.participantId);
+  if (!participantId) throw new Error('participantId is required');
+  const el = (payload && payload.element) || {};
+  const rec = {
+    eventId: crypto.randomBytes(8).toString('hex'),
+    ts: nowIso(),
+    action,
+    participantId,
+    projectId: (payload && payload.projectId) || null,
+    drawingId: (payload && payload.drawingId) || null,
+    sessionId: (payload && payload.sessionId) || null,
+    mode: (payload && payload.mode) || null,
+    elementId: el.id || el.elementId || null,
+    elementType: el.type || null,
+    elementLabel: el.label || null,
+    source: el.source || null,
+    reviewStatus: el.reviewStatus || null,
+    accepted: el.accepted,
+    geometry: {
+      x: el.x, y: el.y, w: el.w, h: el.h,
+      p1: el.p1 || null, p2: el.p2 || null,
+      vertices: Array.isArray(el.vertices) ? el.vertices.slice(0, 64) : null,
+      isLine: !!el.isLine,
+    },
+    notes: (payload && payload.notes) || null,
+  };
+  appendJsonl(FILES.elementEvents, rec);
+  return rec;
+}
+
+function logElementEventBatch(events, common) {
+  const list = Array.isArray(events) ? events : [];
+  const out = [];
+  for (const ev of list.slice(0, 200)) {
+    out.push(logElementEvent(Object.assign({}, common || {}, ev, {
+      element: ev.element || ev,
+      action: ev.action,
+    })));
+  }
+  return out;
+}
+
+function listElementEvents(filters = {}) {
+  let rows = readJsonl(FILES.elementEvents);
+  if (filters.participantId) {
+    const pid = String(filters.participantId);
+    rows = rows.filter((r) => r.participantId === pid);
+  }
+  if (filters.drawingId) {
+    const d = String(filters.drawingId);
+    rows = rows.filter((r) => r.drawingId === d);
+  }
+  if (filters.action) {
+    const a = String(filters.action).toLowerCase();
+    rows = rows.filter((r) => String(r.action).toLowerCase() === a);
+  }
+  if (filters.limit) rows = rows.slice(-Math.max(1, Number(filters.limit) || 500));
+  return rows;
+}
+
+/**
+ * Training export: human Pro corrections + final accepted vs AI.
+ * Does not train the model itself — exports labeled rows for offline training.
+ */
+function sanitizeAnnotationPart(value) {
+  return String(value || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+}
+
+/** Store complete QS-reviewed element geometry for offline training/evaluation. */
+function saveReviewedAnnotations({ drawingId, projectId, participantId, mode, imageWidth, imageHeight, metersPerPixel, legendNotes, elements, aiElements, source }) {
+  ensureDirs();
+  const did = String(drawingId || '').trim();
+  if (!did) throw new Error('drawingId is required');
+  if (!Array.isArray(elements)) throw new Error('elements must be an array');
+  const normalizeElements = (items, defaultSource, defaultStatus) => (Array.isArray(items) ? items : []).slice(0, 5000).map((e, index) => ({
+    annotationId: String(e.annotationId || (did + '-' + index + '-' + Date.now())),
+    type: String(e.type || 'unknown').toLowerCase().slice(0, 40),
+    label: String(e.label || '').slice(0, 200),
+    x: Number.isFinite(Number(e.x)) ? Number(e.x) : null,
+    y: Number.isFinite(Number(e.y)) ? Number(e.y) : null,
+    w: Number.isFinite(Number(e.w)) ? Number(e.w) : null,
+    h: Number.isFinite(Number(e.h)) ? Number(e.h) : null,
+    isLine: !!e.isLine,
+    p1: e.p1 && Number.isFinite(Number(e.p1.x)) && Number.isFinite(Number(e.p1.y)) ? { x: Number(e.p1.x), y: Number(e.p1.y) } : null,
+    p2: e.p2 && Number.isFinite(Number(e.p2.x)) && Number.isFinite(Number(e.p2.y)) ? { x: Number(e.p2.x), y: Number(e.p2.y) } : null,
+    vertices: Array.isArray(e.vertices) ? e.vertices.slice(0, 100).map(v => ({ x: Number(v.x) || 0, y: Number(v.y) || 0 })) : null,
+    thickness: Number.isFinite(Number(e.thickness)) ? Number(e.thickness) : null,
+    height: Number.isFinite(Number(e.height)) ? Number(e.height) : null,
+    source: String(e.source || defaultSource).slice(0, 30),
+    reviewStatus: String(e.reviewStatus || defaultStatus).slice(0, 30),
+    accepted: e.accepted !== false,
+  }));
+  const normalized = normalizeElements(elements, 'MANUAL', 'QS_REVIEWED');
+  const normalizedAi = normalizeElements(aiElements, 'AI', 'AI_GENERATED');
+  const record = {
+    schemaVersion: 2,
+    drawingId: did,
+    projectId: projectId ? String(projectId).slice(0, 100) : null,
+    participantId: sanitizeParticipant(participantId),
+    mode: mode === 'Pro' || mode === 'pro' ? 'Pro' : 'Simple',
+    imageWidth: Number(imageWidth) || null,
+    imageHeight: Number(imageHeight) || null,
+    metersPerPixel: Number.isFinite(Number(metersPerPixel)) ? Number(metersPerPixel) : null,
+    legendNotes: String(legendNotes || '').slice(0, 4000),
+    source: String(source || 'qs_review').slice(0, 50),
+    reviewedAt: nowIso(),
+    elements: normalized,
+    aiElements: normalizedAi,
+  };
+  const file = path.join(ANNOTATIONS_DIR, sanitizeAnnotationPart(did) + '__' + sanitizeAnnotationPart(projectId || mode || 'latest') + '.json');
+  persistWrite(file, JSON.stringify(record, null, 2), 'utf8');
+  return { ...record, storedPath: path.relative(DATA_ROOT, file) };
+}
+
+function listReviewedAnnotations(filters = {}) {
+  ensureDirs();
+  return fs.readdirSync(ANNOTATIONS_DIR).filter(f => f.endsWith('.json')).map(f => {
+    try { return JSON.parse(fs.readFileSync(path.join(ANNOTATIONS_DIR, f), 'utf8')); } catch (_) { return null; }
+  }).filter(Boolean).filter(row => {
+    if (filters.drawingId && row.drawingId !== String(filters.drawingId)) return false;
+    if (filters.participantId && row.participantId !== String(filters.participantId)) return false;
+    if (filters.mode && String(row.mode).toLowerCase() !== String(filters.mode).toLowerCase()) return false;
+    return true;
+  });
+}
+
+function buildAnnotationDataset(filters = {}) {
+  const annotations = listReviewedAnnotations(filters);
+  const projects = listProjects({}).filter(p => !p.superseded);
+  const byDrawing = {};
+  projects.forEach(p => { if (p.drawingId && !byDrawing[p.drawingId]) byDrawing[p.drawingId] = p; });
+  return {
+    schemaVersion: 1,
+    format: 'measurecraft-reviewed-annotations',
+    generatedAt: nowIso(),
+    purpose: 'QS-reviewed drawing annotations for offline evaluation or dedicated detector training. This does not fine-tune Gemini automatically.',
+    drawings: annotations.map(a => ({
+      ...a,
+      original: byDrawing[a.drawingId] ? { fileName: byDrawing[a.drawingId].fileName, storedPath: byDrawing[a.drawingId].storedPath, sha256: byDrawing[a.drawingId].sha256 } : null,
+    })),
+  };
+}
+
+function buildTrainingDataset(filters = {}) {
+  const measurements = listMeasurements(Object.assign({}, filters, { limit: 50000 }))
+    .filter((m) => !m.superseded);
+  // Prefer rows where a human corrected AI, or Pro manual measurements exist
+  const useful = measurements.filter((m) => {
+    if (m.userCorrection) return true;
+    if (m.measurementMode === 'Pro' && m.userMeasurement != null) return true;
+    if (m.aiMeasurement != null && m.finalAcceptedMeasurement != null
+      && Number(m.aiMeasurement) !== Number(m.finalAcceptedMeasurement)) return true;
+    return false;
+  });
+  const projects = listProjects({}).filter((p) => !p.superseded);
+  const byDwg = {};
+  projects.forEach((p) => { byDwg[p.drawingId] = p; });
+  const drawings = [];
+  const seen = new Set();
+  useful.forEach((m) => {
+    if (!m.drawingId || seen.has(m.drawingId)) return;
+    seen.add(m.drawingId);
+    const p = byDwg[m.drawingId];
+    drawings.push({
+      drawingId: m.drawingId,
+      projectId: m.projectId,
+      participantId: m.participantId,
+      fileName: p && p.fileName,
+      storedPath: p && p.storedPath,
+      hasFile: !!(p && p.storedPath),
+    });
+  });
+  return {
+    generatedAt: nowIso(),
+    purpose: 'Offline AI training / evaluation from human QS corrections. Not used for automatic fine-tuning inside MeasureCraft.',
+    note: 'Review each drawing file under data/drawings/ before including in a training set. Human Pro measurements and userCorrection flags are the ground truth.',
+    sampleCount: useful.length,
+    drawingCount: drawings.length,
+    samples: useful.map((m) => ({
+      recordId: m.recordId,
+      participantId: m.participantId,
+      drawingId: m.drawingId,
+      projectId: m.projectId,
+      measurementMode: m.measurementMode,
+      measurementType: m.measurementType,
+      unit: m.unit,
+      aiMeasurement: m.aiMeasurement,
+      humanMeasurement: m.userMeasurement,
+      finalAccepted: m.finalAcceptedMeasurement,
+      userCorrection: !!m.userCorrection,
+      differencePct: m.differencePct,
+      elementLabel: m.elementLabel,
+      reviewStatus: m.reviewStatus,
+      notes: m.notes,
+    })),
+    drawings,
+    reviewedAnnotations: buildAnnotationDataset(filters).drawings,
+    annotationCount: buildAnnotationDataset(filters).drawings.reduce((n, d) => n + (d.elements || []).length, 0),
+  };
+}
+
+function listStoredDrawings() {
+  ensureDirs();
+  const projects = listProjects({}).filter((p) => !p.superseded);
+  // One row per Drawing ID (Simple + Pro revisions share DWG-xxxx)
+  const byDwg = new Map();
+  projects.forEach((p) => {
+    const id = p.drawingId || p.projectId;
+    if (!id) return;
+    const markedAbs = p.markedStoredPath ? path.join(DATA_ROOT, p.markedStoredPath) : null;
+    const hasMarked = !!(markedAbs && fs.existsSync(markedAbs));
+    const mode = p.mode || '—';
+    const existing = byDwg.get(id);
+    if (!existing) {
+      byDwg.set(id, {
+        drawingId: p.drawingId,
+        projectId: p.projectId,
+        projectIds: [p.projectId].filter(Boolean),
+        modes: [mode],
+        mode: mode,
+        participantId: p.participantId,
+        fileName: p.fileName,
+        storedPath: p.storedPath,
+        markedStoredPath: hasMarked ? p.markedStoredPath : null,
+        markedAt: hasMarked ? p.markedAt : null,
+        hasMarked,
+        uploadedAt: p.uploadedAt,
+        byteSize: p.byteSize,
+        markedByteSize: hasMarked ? p.markedByteSize : null,
+        sha256: p.sha256,
+        revision: p.revision || 'ORIGINAL',
+        parentProjectId: p.parentProjectId || null,
+        reviewLabel: p.drawingId + (p.fileName ? ' · ' + p.fileName : ''),
+      });
+      return;
+    }
+    if (p.projectId && existing.projectIds.indexOf(p.projectId) < 0) {
+      existing.projectIds.push(p.projectId);
+    }
+    if (mode && existing.modes.indexOf(mode) < 0) existing.modes.push(mode);
+    existing.mode = existing.modes.join(' + ');
+    if (p.uploadedAt && (!existing.uploadedAt || String(p.uploadedAt) > String(existing.uploadedAt))) {
+      existing.uploadedAt = p.uploadedAt;
+    }
+    if (p.storedPath && !existing.storedPath) existing.storedPath = p.storedPath;
+    if (p.byteSize && (!existing.byteSize || p.byteSize > existing.byteSize)) existing.byteSize = p.byteSize;
+    if (hasMarked) {
+      existing.hasMarked = true;
+      existing.markedStoredPath = p.markedStoredPath;
+      existing.markedAt = p.markedAt;
+      existing.markedByteSize = p.markedByteSize;
+    }
+    // Prefer latest project id for display (Pro revision often newer)
+    if (p.projectId && String(p.projectId).indexOf('/') >= 0) {
+      existing.projectId = p.projectId;
+      existing.revision = p.revision || existing.revision;
+      existing.parentProjectId = p.parentProjectId || existing.parentProjectId;
+    }
+  });
+  return Array.from(byDwg.values()).sort((a, b) =>
+    String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || ''))
+  );
+}
+
+function rewriteJsonl(file, rows) {
+  ensureDirs();
+  persistWrite(file, rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function dateTimeParts(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const date = d.toISOString().slice(0, 10);
+  const time = d.toISOString().slice(11, 19);
+  return { date, time };
+}
+
+/**
+ * Optional Google Sheets append via Apps Script web app.
+ * The script should accept POST JSON and append a row.
+ * Set GOOGLE_SHEETS_WEBHOOK_URL and optional GOOGLE_SHEETS_WEBHOOK_SECRET.
+ */
+async function pushToGoogleSheets(row) {
+  const url = (process.env.GOOGLE_SHEETS_WEBHOOK_URL || '').trim();
+  if (!url) return { ok: false, skipped: true, reason: 'GOOGLE_SHEETS_WEBHOOK_URL not set' };
+  const secret = (process.env.GOOGLE_SHEETS_WEBHOOK_SECRET || '').trim();
+  try {
+    const body = secret ? { secret, row } : { row };
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await resp.text();
+    if (!resp.ok) {
+      console.warn('[research] Google Sheets webhook failed', resp.status, text.slice(0, 200));
+      return { ok: false, status: resp.status, body: text.slice(0, 300) };
+    }
+    return { ok: true, body: text.slice(0, 300) };
+  } catch (err) {
+    console.warn('[research] Google Sheets webhook error', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+function startSession({ participantId, mode, userAgent }) {
+  ensureDirs();
+  const sessionId = nextId('session');
+  const startedAt = nowIso();
+  const rec = {
+    sessionId,
+    participantId: sanitizeParticipant(participantId),
+    mode: mode === 'pro' ? 'Pro' : 'Simple',
+    startedAt,
+    endedAt: null,
+    userAgent: String(userAgent || '').slice(0, 240),
+    projectId: null,
+    drawingId: null,
+  };
+  appendJsonl(FILES.sessions, rec);
+  return rec;
+}
+
+function endSession(sessionId, extras = {}) {
+  const sessions = readJsonl(FILES.sessions);
+  const idx = sessions.findIndex((s) => s.sessionId === sessionId);
+  if (idx < 0) return null;
+  const endedAt = nowIso();
+  const start = new Date(sessions[idx].startedAt).getTime();
+  const durationSec = Math.max(0, Math.round((Date.now() - start) / 1000));
+  sessions[idx] = {
+    ...sessions[idx],
+    ...extras,
+    endedAt,
+    durationSec,
+  };
+  // Rewrite sessions file (small research volume)
+  persistWrite(FILES.sessions, sessions.map((s) => JSON.stringify(s)).join('\n') + '\n', 'utf8');
+  return sessions[idx];
+}
+
+/**
+ * Register an uploaded drawing. Stores original file bytes unchanged.
+ * Same participant + same image hash → reuse drawingId (latest upload wins; no duplicate research rows).
+ */
+function registerProject({
+  participantId,
+  mode,
+  sessionId,
+  fileName,
+  mimeType,
+  imageBase64,
+  projectName,
+  scaleNote,
+  meta,
+}) {
+  ensureDirs();
+  const pid = sanitizeParticipant(participantId);
+  const uploadedAt = nowIso();
+  let storedPath = null;
+  let byteSize = 0;
+  let sha256 = null;
+  let buf = null;
+
+  if (imageBase64 && typeof imageBase64 === 'string') {
+    const raw = imageBase64.replace(/^data:[^;]+;base64,/, '');
+    buf = Buffer.from(raw, 'base64');
+    byteSize = buf.length;
+    sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+  }
+
+  const wantMode = mode === 'pro' || mode === 'Pro' ? 'Pro' : 'Simple';
+
+  // Reuse ORIGINAL project only for same participant + hash + mode.
+  // Never overwrite Simple ORIGINAL into Pro (use createProRevision for PROJ-xxxx/A).
+  if (sha256) {
+    const projects = readJsonl(FILES.projects);
+    const priorSameMode = projects
+      .filter((p) =>
+        p.participantId === pid &&
+        p.sha256 === sha256 &&
+        !p.superseded &&
+        (p.revision === 'ORIGINAL' || !p.revision) &&
+        String(p.mode || '') === wantMode
+      )
+      .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));
+    if (priorSameMode.length) {
+      const keep = priorSameMode[0];
+      const updated = projects.map((p) => {
+        if (p.projectId !== keep.projectId) return p;
+        return {
+          ...p,
+          uploadedAt,
+          sessionId: sessionId || p.sessionId,
+          mode: wantMode,
+          revision: p.revision || 'ORIGINAL',
+          parentProjectId: p.parentProjectId || null,
+          projectName: String(projectName || fileName || p.projectName || 'Untitled').slice(0, 200),
+          fileName: String(fileName || p.fileName || '').slice(0, 240),
+          scaleNote: scaleNote != null ? scaleNote : p.scaleNote,
+          meta: { ...(p.meta || {}), ...(meta || {}), reuploaded: true },
+          latestUploadAt: uploadedAt,
+        };
+      });
+      rewriteJsonl(FILES.projects, updated);
+      return { ...(updated.find((p) => p.projectId === keep.projectId) || keep), reused: true };
+    }
+    // Same drawing bytes, different mode: keep Drawing ID, new ORIGINAL Project ID for this mode
+    const priorAny = projects
+      .filter((p) => p.participantId === pid && p.sha256 === sha256 && !p.superseded)
+      .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));
+    if (priorAny.length) {
+      const keepDwg = priorAny[0];
+      const projectId = nextId('project');
+      const project = {
+        projectId,
+        drawingId: keepDwg.drawingId,
+        participantId: pid,
+        mode: wantMode,
+        revision: 'ORIGINAL',
+        parentProjectId: null,
+        sessionId: sessionId || null,
+        projectName: String(projectName || fileName || 'Untitled').slice(0, 200),
+        fileName: String(fileName || keepDwg.fileName || '').slice(0, 240),
+        mimeType: String(mimeType || keepDwg.mimeType || 'image/jpeg').slice(0, 80),
+        uploadedAt,
+        scaleNote: scaleNote || keepDwg.scaleNote || null,
+        storedPath: keepDwg.storedPath || null,
+        byteSize: keepDwg.byteSize || byteSize,
+        sha256: keepDwg.sha256 || sha256,
+        originalUnchanged: true,
+        forAiTraining: false,
+        superseded: false,
+        meta: { ...(meta || {}), sharedDrawingId: true },
+      };
+      appendJsonl(FILES.projects, project);
+      return project;
+    }
+  }
+
+  const projectId = nextId('project');
+  const drawingId = nextId('drawing');
+
+  if (buf) {
+    const ext = (mimeType || '').includes('png') ? 'png'
+      : (mimeType || '').includes('webp') ? 'webp'
+      : (mimeType || '').includes('pdf') ? 'pdf'
+      : 'jpg';
+    const fname = `${drawingId}.${ext}`;
+    storedPath = path.join(DRAWINGS_DIR, fname);
+    persistWrite(storedPath, buf);
+    // NOTE: stays absolute here on purpose — it's converted to a
+    // DATA_ROOT-relative path below when the project object is built.
+  }
+
+  const project = {
+    projectId,
+    drawingId,
+    participantId: pid,
+    mode: wantMode,
+    revision: 'ORIGINAL',
+    parentProjectId: null,
+    sessionId: sessionId || null,
+    projectName: String(projectName || fileName || 'Untitled').slice(0, 200),
+    fileName: String(fileName || '').slice(0, 240),
+    mimeType: String(mimeType || 'image/jpeg').slice(0, 80),
+    uploadedAt,
+    scaleNote: scaleNote || null,
+    storedPath: storedPath ? path.relative(DATA_ROOT, storedPath) : null,
+    byteSize,
+    sha256,
+    originalUnchanged: true,
+    forAiTraining: false,
+    superseded: false,
+    meta: meta || {},
+  };
+  appendJsonl(FILES.projects, project);
+  return project;
+}
+
+/**
+ * Create Pro Mode child version from an exported Simple Mode project.
+ * Drawing ID unchanged. Project ID becomes PROJ-0001/A (then /B, /C…).
+ * Parent Simple record is never modified or superseded.
+ */
+function createProRevision({ parentProjectId, participantId, sessionId, projectName, meta }) {
+  ensureDirs();
+  const parentId = String(parentProjectId || '').trim();
+  if (!parentId) throw new Error('parentProjectId is required');
+  const projects = readJsonl(FILES.projects);
+  const parent = projects.find((p) => p.projectId === parentId && !p.superseded)
+    || projects.find((p) => p.projectId === parentId);
+  if (!parent) throw new Error('Parent project not found: ' + parentId);
+
+  // Base id without /A /B suffix
+  const baseId = parentId.split('/')[0];
+  const existingChildren = projects.filter((p) =>
+    String(p.parentProjectId || '') === baseId ||
+    String(p.parentProjectId || '') === parentId ||
+    (String(p.projectId || '').startsWith(baseId + '/') && p.projectId !== parentId)
+  );
+  const usedLetters = new Set();
+  existingChildren.forEach((p) => {
+    const parts = String(p.projectId || '').split('/');
+    if (parts.length >= 2) usedLetters.add(parts[1].toUpperCase());
+    if (p.revision && p.revision !== 'ORIGINAL') usedLetters.add(String(p.revision).toUpperCase());
+  });
+  let letter = 'A';
+  for (let i = 0; i < 26; i++) {
+    const L = String.fromCharCode(65 + i);
+    if (!usedLetters.has(L)) { letter = L; break; }
+  }
+  const childId = baseId + '/' + letter;
+  const pid = sanitizeParticipant(participantId || parent.participantId);
+  const project = {
+    projectId: childId,
+    drawingId: parent.drawingId,
+    participantId: pid,
+    mode: 'Pro',
+    revision: letter,
+    parentProjectId: baseId,
+    sessionId: sessionId || null,
+    projectName: String(projectName || parent.projectName || 'Pro revision').slice(0, 200),
+    fileName: parent.fileName || '',
+    mimeType: parent.mimeType || 'image/jpeg',
+    uploadedAt: nowIso(),
+    scaleNote: parent.scaleNote || null,
+    storedPath: parent.storedPath || null,
+    byteSize: parent.byteSize || 0,
+    sha256: parent.sha256 || null,
+    originalUnchanged: false,
+    forAiTraining: false,
+    superseded: false,
+    meta: Object.assign({}, parent.meta || {}, meta || {}, {
+      fromSimpleExport: true,
+      parentProjectId: baseId,
+      revision: letter,
+    }),
+  };
+  appendJsonl(FILES.projects, project);
+  return project;
+}
+
+/**
+ * Mark previous measurements for same participant + drawing + mode + type as superseded
+ * so re-exports only keep the latest set.
+ */
+function supersedePriorMeasurements({ participantId, drawingId, measurementMode, measurementType }) {
+  if (!participantId || !drawingId) return;
+  const pid = sanitizeParticipant(participantId);
+  const mode = measurementMode === 'Pro' ? 'Pro' : 'Simple';
+  const rows = readJsonl(FILES.measurements);
+  let changed = false;
+  const updated = rows.map((r) => {
+    if (
+      r.participantId === pid &&
+      r.drawingId === drawingId &&
+      r.measurementMode === mode &&
+      (!measurementType || r.measurementType === measurementType) &&
+      !r.superseded
+    ) {
+      changed = true;
+      return { ...r, superseded: true, supersededAt: nowIso() };
+    }
+    return r;
+  });
+  if (changed) rewriteJsonl(FILES.measurements, updated);
+}
+
+/**
+ * Log a measurement comparison row.
+ * Supports reference / AI / simple / pro / final accepted values.
+ */
+function logMeasurement(payload) {
+  ensureDirs();
+  // Latest export wins for this participant + drawing + mode + type
+  if (!payload._skipSupersede) {
+    supersedePriorMeasurements({
+      participantId: payload.participantId,
+      drawingId: payload.drawingId,
+      measurementMode: payload.measurementMode === 'Pro' || payload.mode === 'pro' ? 'Pro' : 'Simple',
+      measurementType: payload.measurementType || payload.elementType,
+    });
+  }
+  const recordId = nextId('record');
+  const createdAt = nowIso();
+  const { date, time } = dateTimeParts(createdAt);
+
+  const num = (v) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const ai = num(payload.aiMeasurement);
+  const user = num(payload.userMeasurement);
+  const finalV = num(payload.finalAcceptedMeasurement != null ? payload.finalAcceptedMeasurement : payload.userMeasurement);
+  const reference = num(payload.referenceMeasurement);
+  const unit = String(payload.unit || '').slice(0, 24) || null;
+
+  let difference = null;
+  let differencePct = null;
+  // Prefer final vs reference when both present; else final vs AI
+  const baseline = reference != null ? reference : ai;
+  if (finalV != null && baseline != null) {
+    difference = Math.round((finalV - baseline) * 10000) / 10000;
+    if (Math.abs(baseline) > 1e-9) {
+      differencePct = Math.round((Math.abs(difference) / Math.abs(baseline)) * 10000) / 100;
+    }
+  }
+
+  const record = {
+    recordId,
+    participantId: sanitizeParticipant(payload.participantId),
+    projectId: payload.projectId || null,
+    drawingId: payload.drawingId || null,
+    sessionId: payload.sessionId || null,
+    date,
+    time,
+    createdAt,
+    measurementMode: payload.measurementMode === 'Pro' || payload.mode === 'pro' ? 'Pro' : 'Simple',
+    measurementType: String(payload.measurementType || payload.elementType || 'unknown').slice(0, 80),
+    measurementMethod: String(payload.measurementMethod || 'manual').slice(0, 80),
+    // Comparison fields
+    referenceMeasurement: reference,
+    aiMeasurement: ai,
+    simpleModeMeasurement: payload.measurementMode === 'Simple' || payload.mode === 'simple' ? user : num(payload.simpleModeMeasurement),
+    proModeMeasurement: payload.measurementMode === 'Pro' || payload.mode === 'pro' ? user : num(payload.proModeMeasurement),
+    userMeasurement: user,
+    finalAcceptedMeasurement: finalV,
+    unit,
+    difference,
+    differencePct,
+    userCorrection: !!(payload.userCorrection || (ai != null && finalV != null && Math.abs(ai - finalV) > 1e-6)),
+    measurementDurationSec: payload.measurementDurationSec != null ? Number(payload.measurementDurationSec) : null,
+    notes: String(payload.notes || '').slice(0, 1000),
+    // Extra professional fields (optional)
+    professionalExtras: payload.professionalExtras || null,
+    elementLabel: payload.elementLabel ? String(payload.elementLabel).slice(0, 120) : null,
+    confidence: payload.confidence != null ? Number(payload.confidence) : null,
+    reviewStatus: payload.reviewStatus || null,
+    // Research control
+    selectedForAiTraining: false,
+    reviewedByResearcher: false,
+    superseded: false,
+  };
+
+  appendJsonl(FILES.measurements, record);
+
+  // Fire-and-forget sheet sync
+  const sheetRow = {
+    recordId: record.recordId,
+    participantId: record.participantId,
+    projectId: record.projectId,
+    drawingId: record.drawingId,
+    date: record.date,
+    time: record.time,
+    measurementMode: record.measurementMode,
+    measurementType: record.measurementType,
+    measurementMethod: record.measurementMethod,
+    referenceMeasurement: record.referenceMeasurement,
+    aiMeasurement: record.aiMeasurement,
+    userMeasurement: record.userMeasurement,
+    simpleModeMeasurement: record.simpleModeMeasurement,
+    proModeMeasurement: record.proModeMeasurement,
+    finalAcceptedMeasurement: record.finalAcceptedMeasurement,
+    unit: record.unit,
+    difference: record.difference,
+    differencePct: record.differencePct,
+    userCorrection: record.userCorrection ? 'Yes' : 'No',
+    measurementDurationSec: record.measurementDurationSec,
+    notes: record.notes,
+    elementLabel: record.elementLabel,
+    confidence: record.confidence,
+    reviewStatus: record.reviewStatus,
+  };
+  pushToGoogleSheets(sheetRow).catch(() => {});
+
+  return record;
+}
+
+/**
+ * Bulk log from a BOQ / element list (one session export).
+ */
+function logMeasurementBatch(items, common) {
+  const results = [];
+  // Supersede all prior rows for this drawing+mode once, then write new batch
+  if (common && common.participantId && common.drawingId) {
+    supersedePriorMeasurements({
+      participantId: common.participantId,
+      drawingId: common.drawingId,
+      measurementMode: common.measurementMode === 'Pro' || common.mode === 'pro' ? 'Pro' : 'Simple',
+      measurementType: null, // all types for this drawing+mode
+    });
+  }
+  for (const item of items || []) {
+    // Avoid double-supersede inside logMeasurement for batch
+    const payload = { ...common, ...item, _skipSupersede: true };
+    results.push(logMeasurement(payload));
+  }
+  return results;
+}
+
+function enrichMeasurementRecord(row) {
+  const out = { ...row };
+  const num = (v) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const finalV = num(out.finalAcceptedMeasurement != null ? out.finalAcceptedMeasurement : out.userMeasurement);
+  const reference = num(out.referenceMeasurement);
+  const ai = num(out.aiMeasurement);
+  const baseline = reference != null ? reference : ai;
+  if (out.finalAcceptedMeasurement == null && finalV != null) out.finalAcceptedMeasurement = finalV;
+  if (out.userMeasurement == null && finalV != null) out.userMeasurement = finalV;
+  if (out.difference == null && finalV != null && baseline != null) {
+    const difference = Math.round((finalV - baseline) * 10000) / 10000;
+    out.difference = difference;
+    if (Math.abs(baseline) > 1e-9) {
+      out.differencePct = Math.round((Math.abs(difference) / Math.abs(baseline)) * 10000) / 100;
+    }
+  } else if (out.differencePct == null && out.difference != null && baseline != null && Math.abs(baseline) > 1e-9) {
+    out.differencePct = Math.round((Math.abs(Number(out.difference)) / Math.abs(baseline)) * 10000) / 100;
+  }
+  if (out.userCorrection == null) {
+    out.userCorrection = !!(ai != null && finalV != null && Math.abs(ai - finalV) > 1e-6);
+  }
+  if (!String(out.notes || '').trim()) {
+    out.notes = 'Recorded ' + String(out.measurementMethod || 'measurement') + ' · ' + String(out.measurementType || 'quantity');
+  }
+  return out;
+}
+
+function listMeasurements(filters = {}) {
+  let rows = readJsonl(FILES.measurements).map(enrichMeasurementRecord);
+  // Default: only latest (non-superseded) rows
+  if (filters.includeSuperseded !== true && filters.includeSuperseded !== 'true') {
+    rows = rows.filter((r) => !r.superseded);
+  }
+  if (filters.participantId) {
+    const p = sanitizeParticipant(filters.participantId);
+    rows = rows.filter((r) => r.participantId === p);
+  }
+  if (filters.mode) {
+    const m = String(filters.mode).toLowerCase() === 'pro' ? 'Pro' : 'Simple';
+    rows = rows.filter((r) => r.measurementMode === m);
+  }
+  if (filters.drawingId) rows = rows.filter((r) => r.drawingId === filters.drawingId);
+  if (filters.projectId) rows = rows.filter((r) => r.projectId === filters.projectId);
+  if (filters.measurementType) {
+    const t = String(filters.measurementType).toLowerCase();
+    rows = rows.filter((r) => String(r.measurementType).toLowerCase() === t);
+  }
+  if (filters.userCorrection === true || filters.userCorrection === 'true') {
+    rows = rows.filter((r) => r.userCorrection);
+  }
+  // newest first
+  rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const limit = Math.min(Number(filters.limit) || 500, 5000);
+  return rows.slice(0, limit);
+}
+
+function listProjects(filters = {}) {
+  let rows = readJsonl(FILES.projects);
+  if (filters.includeSuperseded !== true && filters.includeSuperseded !== 'true') {
+    rows = rows.filter((r) => !r.superseded);
+  }
+  if (filters.participantId) {
+    const p = sanitizeParticipant(filters.participantId);
+    rows = rows.filter((r) => r.participantId === p);
+  }
+  rows.sort((a, b) => String(b.uploadedAt || b.latestUploadAt || '').localeCompare(String(a.uploadedAt || a.latestUploadAt || '')));
+  return rows.slice(0, Math.min(Number(filters.limit) || 500, 2000));
+}
+
+function listSessions(filters = {}) {
+  let rows = readJsonl(FILES.sessions);
+  if (filters.participantId) {
+    const p = sanitizeParticipant(filters.participantId);
+    rows = rows.filter((r) => r.participantId === p);
+  }
+  rows.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  return rows.slice(0, Math.min(Number(filters.limit) || 500, 2000));
+}
+
+function detectionAccuracy(filters = {}) {
+  const types = ['wall', 'door', 'window', 'column', 'beam', 'slab'];
+  const threshold = Math.max(0.1, Math.min(0.95, Number(filters.iouThreshold) || 0.5));
+  const rows = listReviewedAnnotations(filters).filter((row) => Array.isArray(row.aiElements) && row.aiElements.length);
+  const byType = Object.fromEntries(types.map((type) => [type, { type, drawings: 0, aiMarked: 0, confirmed: 0, truePositive: 0, falsePositive: 0, falseNegative: 0, precision: null, recall: null, quantityErrorPct: null }]));
+  const iou = (a, b) => {
+    const ax = Number(a.x) || 0, ay = Number(a.y) || 0, aw = Math.max(0, Number(a.w) || 0), ah = Math.max(0, Number(a.h) || 0);
+    const bx = Number(b.x) || 0, by = Number(b.y) || 0, bw = Math.max(0, Number(b.w) || 0), bh = Math.max(0, Number(b.h) || 0);
+    const inter = Math.max(0, Math.min(ax + aw, bx + bw) - Math.max(ax, bx)) * Math.max(0, Math.min(ay + ah, by + bh) - Math.max(ay, by));
+    const union = aw * ah + bw * bh - inter;
+    return union > 0 ? inter / union : 0;
+  };
+  rows.forEach((row) => {
+    const human = Array.isArray(row.elements) ? row.elements : [];
+    const ai = Array.isArray(row.aiElements) ? row.aiElements : [];
+    types.forEach((type) => {
+      const truth = human.filter((e) => e.type === type);
+      const proposals = ai.filter((e) => e.type === type);
+      const used = new Set(); let tp = 0;
+      proposals.forEach((proposal) => {
+        let best = -1, bestScore = 0;
+        truth.forEach((target, index) => { if (!used.has(index)) { const score = iou(proposal, target); if (score > bestScore) { bestScore = score; best = index; } } });
+        if (best >= 0 && bestScore >= threshold) { used.add(best); tp++; }
+      });
+      const stat = byType[type]; stat.drawings++; stat.aiMarked += proposals.length; stat.confirmed += truth.length; stat.truePositive += tp; stat.falsePositive += proposals.length - tp; stat.falseNegative += truth.length - tp;
+    });
+  });
+  const measurements = listMeasurements(filters).filter((m) => m.aiMeasurement != null && m.finalAcceptedMeasurement != null);
+  measurements.forEach((m) => { const type = String(m.measurementType || '').toLowerCase(); const stat = byType[type]; if (stat) { stat._q = stat._q || []; if (Number.isFinite(Number(m.differencePct))) stat._q.push(Math.abs(Number(m.differencePct))); } });
+  Object.values(byType).forEach((stat) => { stat.precision = stat.aiMarked ? Math.round(stat.truePositive / stat.aiMarked * 10000) / 100 : null; stat.recall = stat.confirmed ? Math.round(stat.truePositive / stat.confirmed * 10000) / 100 : null; if (stat._q && stat._q.length) stat.quantityErrorPct = Math.round(stat._q.reduce((a, b) => a + b, 0) / stat._q.length * 100) / 100; delete stat._q; });
+  return { generatedAt: nowIso(), iouThreshold: threshold, annotationDrawings: rows.length, byType: Object.values(byType), note: 'Precision/recall use one-to-one bounding-box matching. Quantity error uses absolute final-versus-reference or final-versus-AI measurement error.' };
+}
+
+function summaryStats() {
+  const measurements = readJsonl(FILES.measurements).filter((m) => !m.superseded);
+  const projects = readJsonl(FILES.projects).filter((p) => !p.superseded);
+  const sessions = readJsonl(FILES.sessions);
+  const participants = new Set(measurements.map((m) => m.participantId));
+  const corrected = measurements.filter((m) => m.userCorrection).length;
+  const withRef = measurements.filter((m) => m.referenceMeasurement != null && m.finalAcceptedMeasurement != null);
+  let meanAbsPct = null;
+  if (withRef.length) {
+    const sum = withRef.reduce((s, m) => s + (Number(m.differencePct) || 0), 0);
+    meanAbsPct = Math.round((sum / withRef.length) * 100) / 100;
+  }
+  return {
+    totalMeasurements: measurements.length,
+    totalProjects: projects.length,
+    totalSessions: sessions.length,
+    uniqueParticipants: participants.size,
+    correctedCount: corrected,
+    correctionRate: measurements.length ? Math.round((corrected / measurements.length) * 1000) / 10 : 0,
+    meanAbsPctErrorVsReference: meanAbsPct,
+    simpleCount: measurements.filter((m) => m.measurementMode === 'Simple').length,
+    proCount: measurements.filter((m) => m.measurementMode === 'Pro').length,
+  };
+}
+
+function exportCsv(rows) {
+  const cols = [
+    'recordId', 'participantId', 'projectId', 'drawingId', 'date', 'time',
+    'measurementMode', 'measurementType', 'measurementMethod',
+    'referenceMeasurement', 'aiMeasurement', 'simpleModeMeasurement', 'proModeMeasurement',
+    'userMeasurement', 'finalAcceptedMeasurement', 'unit',
+    'difference', 'differencePct', 'userCorrection', 'measurementDurationSec',
+    'notes', 'elementLabel', 'confidence', 'reviewStatus',
+  ];
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const lines = [cols.join(',')];
+  for (const r of rows) {
+    lines.push(cols.map((c) => esc(r[c])).join(','));
+  }
+  return lines.join('\n');
+}
+
+function getDrawingPath(drawingId) {
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) return null;
+  const projects = readJsonl(FILES.projects);
+  const p = projects.find((x) => x.drawingId === id);
+  if (!p || !p.storedPath) return null;
+  const abs = path.join(DATA_ROOT, p.storedPath);
+  // Belt-and-braces: refuse to serve anything that resolves outside DATA_ROOT.
+  if (!abs.startsWith(path.resolve(DATA_ROOT) + path.sep)) return null;
+  if (!fs.existsSync(abs)) return null;
+  return { abs, project: p };
+}
+
+/**
+ * Save a marked plan (measurements overlaid) for research download.
+ * File: data/drawings/{drawingId}_marked.jpg (or png)
+ * Updates the project row with markedStoredPath / markedAt.
+ */
+function saveMarkedDrawing({ drawingId, imageBase64, mimeType, participantId, mode, source }) {
+  ensureDirs();
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) throw new Error('drawingId is required and must look like DWG-0000');
+  if (!imageBase64 || typeof imageBase64 !== 'string') {
+    throw new Error('imageBase64 is required');
+  }
+  const raw = imageBase64.replace(/^data:[^;]+;base64,/, '');
+  const buf = Buffer.from(raw, 'base64');
+  if (!buf.length) throw new Error('empty image');
+
+  const ext = (mimeType || '').includes('png') ? 'png'
+    : (mimeType || '').includes('webp') ? 'webp'
+    : 'jpg';
+  const fname = `${id}_marked.${ext}`;
+  const abs = path.join(DRAWINGS_DIR, fname);
+  persistWrite(abs, buf);
+  const rel = path.relative(DATA_ROOT, abs);
+  const markedAt = nowIso();
+
+  const projects = readJsonl(FILES.projects);
+  let found = false;
+  const updated = projects.map((p) => {
+    if (p.drawingId !== id || p.superseded) return p;
+    found = true;
+    return {
+      ...p,
+      markedStoredPath: rel,
+      markedAt,
+      markedByteSize: buf.length,
+      markedMimeType: mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg'),
+      markedSource: source || 'pro_export',
+      markedMode: mode === 'pro' || mode === 'Pro' ? 'Pro' : (mode || p.mode || null),
+      markedParticipantId: participantId || p.participantId || null,
+    };
+  });
+
+  // If no project row exists yet, create a minimal one so the dashboard can list the marked file
+  if (!found) {
+    updated.push({
+      projectId: nextId('project'),
+      drawingId: id,
+      participantId: sanitizeParticipant(participantId || 'unknown'),
+      mode: mode === 'pro' || mode === 'Pro' ? 'Pro' : 'Simple',
+      projectName: 'Marked only',
+      fileName: fname,
+      uploadedAt: markedAt,
+      storedPath: null,
+      markedStoredPath: rel,
+      markedAt,
+      markedByteSize: buf.length,
+      markedMimeType: mimeType || (ext === 'png' ? 'image/png' : 'image/jpeg'),
+      markedSource: source || 'pro_export',
+      originalUnchanged: false,
+      forAiTraining: false,
+      superseded: false,
+    });
+  }
+  rewriteJsonl(FILES.projects, updated);
+
+  return {
+    drawingId: id,
+    markedStoredPath: rel,
+    markedAt,
+    byteSize: buf.length,
+    fileName: fname,
+  };
+}
+
+function getMarkedDrawingPath(drawingId) {
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) return null;
+  const projects = readJsonl(FILES.projects);
+  const p = projects.find((x) => x.drawingId === id && !x.superseded)
+    || projects.find((x) => x.drawingId === id);
+  if (!p || !p.markedStoredPath) return null;
+  const abs = path.join(DATA_ROOT, p.markedStoredPath);
+  if (!abs.startsWith(path.resolve(DATA_ROOT) + path.sep)) return null;
+  if (!fs.existsSync(abs)) return null;
+  return { abs, project: p, fileName: path.basename(p.markedStoredPath) };
+}
+
+module.exports = {
+  ensureDirs,
+  hydrateFromRemote,
+  startSession,
+  endSession,
+  registerProject,
+  createProRevision,
+  logMeasurement,
+  logMeasurementBatch,
+  listMeasurements,
+  listProjects,
+  listSessions,
+  summaryStats,
+  detectionAccuracy,
+  exportCsv,
+  getDrawingPath,
+  getMarkedDrawingPath,
+  saveMarkedDrawing,
+  pushToGoogleSheets,
+  bindEmailToParticipant,
+  getParticipantForEmail,
+  getEmailForParticipant,
+  assertParticipantAvailable,
+  deleteMeasurementRecords,
+  logElementEvent,
+  logElementEventBatch,
+  listElementEvents,
+  buildTrainingDataset,
+  saveReviewedAnnotations,
+  listReviewedAnnotations,
+  buildAnnotationDataset,
+  listStoredDrawings,
+  DATA_ROOT,
+  DRAWINGS_DIR,
+  RESEARCH_DIR,
+  ANNOTATIONS_DIR,
+  FILES,
+  storageStatus: researchStorage.status,
+};

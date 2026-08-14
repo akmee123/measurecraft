@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeasureCraft · Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <style>
+        :root {
+            --bg: #EFEBE2;
+            --card-bg: #FFFFFF;
+            --card-border: #DED5C2;
+            --text: #221F1C;
+            --text-secondary: #6B6155;
+            --text-muted: #7A7166;
+            --brass: #B8863B;
+            --brass-hover: #96692A;
+            --teal: #2F6E62;
+            --brass-glow: rgba(184, 134, 59, 0.18);
+            --radius: 14px;
+            --radius-sm: 8px;
+            --input-bg: #FBF9F4;
+            --input-border: #DED5C2;
+            --error: #B23A2E;
+            --error-bg: rgba(178, 58, 46, 0.07);
+            --error-border: rgba(178, 58, 46, 0.2);
+            --success: #2F7D4F;
+        }
+        [data-theme="dark"] {
+            --bg: #16140F;
+            --card-bg: #201D17;
+            --card-border: #4A4338;
+            --text: #F7F1E6;
+            --text-secondary: #C9BFAE;
+            --text-muted: #B8AE9E;
+            --brass: #D0A257;
+            --brass-hover: #E0B569;
+            --input-bg: #2A261F;
+            --input-border: #4A4338;
+            --error-bg: rgba(178, 58, 46, 0.15);
+            --error-border: rgba(178, 58, 46, 0.3);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            background-color: var(--bg);
+            background-image: url('login-bg.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: stretch;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+            overflow-y: auto;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(239, 235, 226, 0.55) 0%, rgba(239, 235, 226, 0.40) 50%, rgba(239, 235, 226, 0.58) 100%);
+            z-index: 0;
+            pointer-events: none;
+            transition: background 0.4s ease;
+        }
+        [data-theme="dark"] body::before {
+            background: linear-gradient(135deg, rgba(22, 20, 15, 0.65) 0%, rgba(22, 20, 15, 0.50) 50%, rgba(22, 20, 15, 0.68) 100%);
+        }
+        .display { font-family: 'Fraunces', serif; }
+        .mono { font-family: 'Space Mono', monospace; }
+
+        /* ---------- tape-measure tick strip (signature motif) ---------- */
+        .tick-strip {
+            position: fixed; top: 0; left: 0; right: 0; height: 26px; z-index: 2;
+            background: var(--brass);
+            display: flex; align-items: flex-end;
+            overflow: hidden;
+        }
+        .tick-strip span { flex: 1 0 auto; width: 1px; background: rgba(255,255,255,0.55); margin-right: 15px; }
+        .tick-strip span:nth-child(5n) { height: 14px; background: rgba(255,255,255,0.85); }
+        .tick-strip span:not(:nth-child(5n)) { height: 7px; }
+
+        .login-wrap {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 58px 40px 32px;
+            display: grid;
+            grid-template-columns: 1fr 440px;
+            gap: 56px;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .login-brand-panel { display: flex; flex-direction: column; justify-content: center; gap: 22px; padding: 24px 8px; }
+        .login-brand-panel .brand-row { margin-bottom: 0; justify-content: flex-start; }
+        .login-brand-panel .theme-toggle { margin-left: auto; }
+        .login-hero-title {
+            font-family: 'Fraunces', serif;
+            font-size: clamp(30px, 4vw, 44px);
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            line-height: 1.14;
+            color: var(--text);
+            text-shadow: 0 1px 2px rgba(255,255,255,0.35), 0 0 24px rgba(239,235,226,0.5);
+        }
+        [data-theme="dark"] .login-hero-title {
+            text-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 0 28px rgba(22,20,15,0.6);
+        }
+        .login-hero-title em { font-style: italic; color: var(--brass); }
+        .login-hero-sub { font-size: 16px; color: var(--text-secondary); line-height: 1.65; max-width: 420px;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+        }
+        [data-theme="dark"] .login-hero-sub {
+            text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+        }
+        .login-hero-dim { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+        .login-hero-dim .rule { flex: 0 0 64px; height: 1px; background: var(--card-border); position: relative; }
+        .login-hero-dim .rule::before, .login-hero-dim .rule::after { content:''; position:absolute; top:-3px; width:1px; height:7px; background:var(--card-border); }
+        .login-hero-dim .rule::before { left:0; } .login-hero-dim .rule::after { right:0; }
+        .login-hero-dim span:last-child { font-family:'Space Mono',monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); }
+
+        .login-form-panel { width: 100%; max-width: 440px; justify-self: end; }
+        .login-form-panel .brand-row { display: none; }
+        @media (max-width: 900px) {
+            .login-wrap { grid-template-columns: 1fr; max-width: 480px; padding: 48px 20px 28px; min-height: auto; gap: 16px; }
+            .login-brand-panel { display: none; }
+            .login-form-panel { justify-self: stretch; max-width: none; }
+            .login-form-panel .brand-row { display: flex; }
+        }
+        .brand-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+        .brand { display: flex; align-items: center; gap: 13px; }
+        .brand-icon {
+            width: 48px; height: 48px; border-radius: 12px; border: none;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            background: #0a0a0a; overflow: hidden; padding: 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+        }
+        .brand-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .brand-icon svg { width: 22px; height: 22px; color: #fff; }
+        .login-hero-logo {
+            width: 120px; height: 120px; margin: 0 0 12px;
+            border-radius: 22px; overflow: hidden; background: #0a0a0a;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+        }
+        .login-hero-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .brand-text { font-family: 'Fraunces', serif; font-weight: 600; font-size: 19px; letter-spacing: -0.01em; line-height: 1.2; color: var(--text);
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+        }
+        [data-theme="dark"] .brand-text { text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+        .brand-text span { display: block; font-family: 'Work Sans', sans-serif; font-weight: 400; font-size: 12px; color: var(--text-secondary); margin-top: 4px; letter-spacing: 0.01em; }
+        .theme-toggle {
+            background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+            padding: 8px 14px; cursor: pointer; color: var(--text-secondary); font-size: 12.5px;
+            font-family: 'Work Sans', sans-serif; font-weight: 500; display: flex; align-items: center; gap: 7px; transition: all 0.2s ease;
+        }
+        .theme-toggle:hover { color: var(--text); border-color: var(--brass); }
+        .theme-toggle .icon-sun { display: none; }
+        .theme-toggle .icon-moon { display: block; }
+        [data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+        [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+        .theme-toggle-fixed {
+            position: fixed;
+            left: 20px;
+            bottom: 20px;
+            z-index: 50;
+            box-shadow: 0 4px 16px rgba(34,31,28,0.12);
+        }
+        @media (max-width: 900px) {
+            .theme-toggle-fixed { display: none; }
+        }
+
+        .card {
+            position: relative; background: var(--card-bg); border: 1px solid var(--card-border);
+            border-radius: var(--radius); box-shadow: 0 20px 40px rgba(34,31,28,0.08); overflow: hidden;
+        }
+        .card::before, .card::after { content:''; position:absolute; width:16px; height:16px; pointer-events:none; }
+        .card::before { top:-1px; left:-1px; border-top:2px solid var(--brass); border-left:2px solid var(--brass); }
+        .card::after { bottom:-1px; right:-1px; border-bottom:2px solid var(--brass); border-right:2px solid var(--brass); }
+        .card-content { padding: 40px 36px; position: relative; z-index: 1; }
+        .header-group { margin-bottom: 26px; }
+        .header-group h1 { font-family: 'Fraunces', serif; font-size: 27px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px; color: var(--text); }
+        .subtitle { color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 7px; letter-spacing: 0.02em; text-transform:uppercase; }
+        .input-wrap { position: relative; }
+        .input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; transition: color 0.2s ease; }
+        .form-group input {
+            width: 100%; padding: 12px 15px 12px 42px; border: 1.5px solid var(--input-border); border-radius: var(--radius-sm);
+            background: var(--input-bg); color: var(--text); font-size: 14.5px; font-family: inherit; outline: none; transition: all 0.2s ease;
+        }
+        .form-group input:focus { border-color: var(--brass); box-shadow: 0 0 0 3px var(--brass-glow); }
+        .form-group input:focus + .input-icon, .input-wrap:focus-within .input-icon { color: var(--brass); }
+        .form-group input::placeholder { color: var(--text-muted); opacity: 0.8; }
+        .toggle-pass {
+            position: absolute; right: 13px; top: 50%; transform: translateY(-50%); background: none; border: none;
+            color: var(--text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center;
+            border-radius: 6px; transition: all 0.15s ease;
+        }
+        .toggle-pass:hover { color: var(--brass); }
+        .toggle-pass .icon-eye-off { display: none; }
+        .toggle-pass.showing .icon-eye { display: none; }
+        .toggle-pass.showing .icon-eye-off { display: block; }
+
+        .row-between { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; font-size: 13px; }
+        .remember { display: flex; align-items: center; gap: 9px; color: var(--text-secondary); cursor: pointer; user-select: none; font-weight: 500; }
+        .remember:hover { color: var(--text); }
+        .checkbox-custom { position: relative; width: 17px; height: 17px; }
+        .checkbox-custom input { position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer; z-index: 1; }
+        .checkmark { position: absolute; inset: 0; border: 1.5px solid var(--input-border); border-radius: 4px; background: var(--input-bg); display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
+        .checkmark svg { opacity: 0; transform: scale(0.5); transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .checkbox-custom input:checked + .checkmark { background: var(--brass); border-color: var(--brass); }
+        .checkbox-custom input:checked + .checkmark svg { opacity: 1; transform: scale(1); }
+        .forgot { color: var(--brass); text-decoration: none; font-weight: 600; font-size: 12.5px; }
+        .forgot:hover { color: var(--brass-hover); }
+
+        .btn-login {
+            width: 100%; padding: 13px 20px; border: none; border-radius: var(--radius-sm); background: var(--brass);
+            color: #fff; font-size: 14.5px; font-weight: 700; font-family: 'Work Sans', sans-serif; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 9px; transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .btn-login:hover { background: var(--brass-hover); transform: translateY(-1px); }
+        .btn-login:active { transform: translateY(0); }
+        .btn-login:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+        .btn-loader { display: none; animation: spin 0.8s linear infinite; }
+        .btn-login.loading .btn-text { display: none; }
+        .btn-login.loading .btn-loader { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Social join (Cloudflare-style) */
+        .social-stack { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+        .btn-social {
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+            width: 100%; padding: 12px 16px; border-radius: 999px;
+            border: 1px solid var(--card-border); background: #fff; color: var(--text);
+            font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+            position: relative;
+        }
+        [data-theme="dark"] .btn-social { background: var(--input-bg); }
+        .btn-social:hover { background: var(--input-bg); border-color: var(--text-muted); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .btn-social:disabled { opacity: 0.55; cursor: not-allowed; }
+        .btn-social .brand-icon { width: 20px; height: 20px; flex-shrink: 0; color: inherit; }
+        .or-divider {
+            display: flex; align-items: center; gap: 14px; margin: 16px 0 14px;
+            color: var(--text-muted); font-size: 13px;
+        }
+        .or-divider::before, .or-divider::after {
+            content: ''; flex: 1; height: 1px; background: var(--card-border);
+        }
+        .join-email-input {
+            width: 100%; padding: 14px 18px; border-radius: 999px;
+            border: 1px solid var(--card-border); background: #fff;
+            font: inherit; font-size: 15px; color: var(--text); outline: none;
+            margin-bottom: 10px; box-sizing: border-box;
+        }
+        [data-theme="dark"] .join-email-input { background: var(--input-bg); }
+        .join-email-input:focus { border-color: var(--brass); box-shadow: 0 0 0 3px var(--brass-glow); }
+        .join-email-input::placeholder { color: var(--text-muted); }
+        .btn-continue {
+            width: 100%; padding: 14px 18px; border-radius: 999px; border: none;
+            background: #1a1a1a; color: #fff; font: inherit; font-size: 15px; font-weight: 700;
+            cursor: pointer; transition: background 0.15s, opacity 0.15s; margin-top: 4px;
+        }
+        [data-theme="dark"] .btn-continue { background: #F7F1E6; color: #16140F; }
+        .btn-continue:hover { background: #333; }
+        [data-theme="dark"] .btn-continue:hover { background: #e8e0d4; }
+        .btn-continue:disabled { background: #9ca3af; cursor: not-allowed; color: #fff; }
+        [data-theme="dark"] .btn-continue:disabled { background: #5a5348; color: #c9bfae; }
+        .btn-continue.loading { opacity: 0.75; }
+        .participant-row { margin: 0 0 8px; }
+        .participant-row input {
+            width: 100%; padding: 10px 16px; border-radius: 999px;
+            border: 1px solid var(--card-border); background: var(--input-bg);
+            font: inherit; font-size: 13px; color: var(--text); outline: none; box-sizing: border-box;
+        }
+        .participant-row input:focus { border-color: var(--brass); }
+
+        .divider { display: flex; align-items: center; gap: 14px; margin: 22px 0; color: var(--text-muted); font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; font-family:'Space Mono',monospace; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--card-border); }
+
+        .demo-hint { background: var(--input-bg); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 13px 15px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; display: flex; align-items: flex-start; gap: 12px; }
+        .demo-icon { flex-shrink: 0; width: 26px; height: 26px; border-radius: 6px; background: var(--brass); display: flex; align-items: center; justify-content: center; color: white; margin-top: 1px; }
+        .demo-text strong { color: var(--text); font-weight: 600; display: block; margin-bottom: 4px; }
+        .demo-creds { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .demo-creds code { background: var(--card-bg); padding: 2px 8px; border-radius: 5px; font-family: 'Space Mono', monospace; font-size: 11px; color: var(--brass-hover); font-weight: 700; border: 1px solid var(--card-border); }
+        .sep { color: var(--text-muted); font-weight: 400; }
+
+        .error-msg { display: none; background: var(--error-bg); border: 1px solid var(--error-border); color: var(--error); border-radius: var(--radius-sm); padding: 11px 13px; font-size: 13px; margin-bottom: 18px; align-items: center; gap: 10px; font-weight: 500; }
+        .error-msg.show { display: flex; }
+
+        .footer { text-align: center; margin-top: 26px; font-size: 12px; color: var(--text-muted); font-weight: 500; }
+        .footer a { color: var(--text-secondary); text-decoration: none; font-weight: 600; }
+        .footer a:hover { color: var(--brass); }
+
+        @media (max-width: 480px) {
+            .login-wrap { padding: 44px 16px 20px; }
+            .card-content { padding: 28px 22px; }
+            .header-group h1 { font-size: 23px; }
+            .brand-row { margin-bottom: 22px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="tick-strip" id="tickStrip" aria-hidden="true"></div>
+
+    <div class="login-wrap">
+        <div class="login-brand-panel">
+            <div class="brand-row">
+                <div class="brand">
+                    <div class="brand-icon">
+                        <img src="logo-icon.png" alt="MeasureCraft" width="48" height="48" />
+                    </div>
+                    <div class="brand-text">MeasureCraft<span>AI-powered element detection &amp; quantity takeoff</span></div>
+                </div>
+            </div>
+            <div class="login-hero-logo"><img src="logo.png" alt="MeasureCraft" /></div>
+            <h2 class="login-hero-title">Measure plans.<br>Extract quantities.<br>Faster.</h2>
+            <p class="login-hero-sub">Upload drawings, run AI detection, calibrate scale, and export takeoffs — for estimators, QS teams, and builders.</p>
+            <div class="login-hero-dim"><span class="rule"></span><span>Calibrated to your drawing's own scale</span></div>
+        </div>
+
+        <div class="login-form-panel">
+        <div class="brand-row">
+            <div class="brand">
+                <div class="brand-icon">
+                    <img src="logo-icon.png" alt="MeasureCraft" width="48" height="48" />
+                </div>
+                <div class="brand-text">MeasureCraft<span>AI-powered element detection &amp; quantity takeoff</span></div>
+            </div>
+            <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                <span id="themeLabel">Dark</span>
+            </button>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <div class="header-group">
+                    <h1>Join MeasureCraft</h1>
+                    <p class="subtitle">Continue with Google, Microsoft, Apple, or your email</p>
+                </div>
+
+                <div class="error-msg" id="errorMsg">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span id="errorText">Invalid email or password.</span>
+                </div>
+
+                <!-- Social providers (Cloudflare-style) -->
+                <div class="social-stack">
+                    <button type="button" class="btn-social" id="btnGoogle" title="Continue with Google">
+                        <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                        Continue with Google
+                    </button>
+                    <div id="googleBtnHost" style="display:none;" aria-hidden="true"></div>
+                    <button type="button" class="btn-social" id="btnMicrosoft" title="Continue with Microsoft">
+                        <svg class="brand-icon" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#00a4ef" d="M12 1h10v10H12z"/><path fill="#7fba00" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>
+                        Continue with Microsoft
+                    </button>
+                    <button type="button" class="btn-social" id="btnApple" title="Continue with Apple">
+                        <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+                        Continue with Apple
+                    </button>
+                </div>
+
+                <div class="or-divider">Or</div>
+
+                <!-- Email join -->
+                <form id="joinForm" autocomplete="on">
+                    <input type="email" class="join-email-input" id="joinEmail" name="joinEmail" placeholder="Enter your email address" required />
+                    <div class="participant-row">
+                        <input type="text" id="joinParticipant" name="joinParticipant" maxlength="64" placeholder="Participant ID (required, e.g. P01)" required />
+                    </div>
+                    <input type="checkbox" id="joinRemember" checked style="position:absolute;opacity:0;pointer-events:none;" tabindex="-1" />
+                    <button type="submit" class="btn-continue" id="btnJoinEmail">Continue</button>
+                </form>
+                <p style="margin:12px 0 0;font-size:11px;color:var(--text-muted);text-align:center;line-height:1.45;">
+                    Research study access — email and Participant ID are required. One email = one permanent Participant ID; IDs cannot be reused.
+                </p>
+
+                <!-- Secondary: demo / password login (collapsed) -->
+                <details style="margin-top:18px;border-top:1px solid var(--card-border);padding-top:14px;">
+                    <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary);list-style:none;">Admin / demo password login</summary>
+                    <form id="loginForm" autocomplete="on" style="margin-top:12px;">
+                        <div class="form-group">
+                            <label for="email">Email address</label>
+                            <div class="input-wrap">
+                                <svg class="input-icon left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                                <input type="email" id="email" name="email" placeholder="demo@measurecraft.com" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <div class="input-wrap">
+                                <svg class="input-icon left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                <input type="password" id="password" name="password" placeholder="Enter your password" />
+                                <button type="button" class="toggle-pass" id="togglePass" aria-label="Show password">
+                                    <svg class="icon-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    <svg class="icon-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row-between">
+                            <label class="remember">
+                                <div class="checkbox-custom">
+                                    <input type="checkbox" id="remember" />
+                                    <span class="checkmark">
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                    </span>
+                                </div>
+                                Remember me
+                            </label>
+                            <a href="#" class="forgot" id="forgotLink">Forgot password?</a>
+                        </div>
+                        <button type="submit" class="btn-login" id="btnLogin">
+                            <span class="btn-text">Sign in</span>
+                            <span class="btn-loader">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                            </span>
+                        </button>
+                    </form>
+                </details>
+            </div>
+        </div>
+
+        <div class="footer">&copy; 2026 MeasureCraft · <a href="#">Privacy</a> · <a href="#">Terms</a></div>
+        </div><!-- /.login-form-panel -->
+    </div>
+
+    <!-- Dark mode: bottom-left (first page) -->
+    <button type="button" class="theme-toggle theme-toggle-fixed" id="themeToggleDesktop" aria-label="Toggle theme">
+        <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span class="themeLabelDup">Dark</span>
+    </button>
+
+    <script>
+        (function () {
+            // build the tick strip
+            const strip = document.getElementById('tickStrip');
+            for (let i = 0; i < 90; i++) { strip.appendChild(document.createElement('span')); }
+
+            const root = document.documentElement;
+            const themeToggle = document.getElementById('themeToggle');
+            const themeLabel = document.getElementById('themeLabel');
+
+            const saved = localStorage.getItem('mc-theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (saved === 'dark' || (!saved && prefersDark)) {
+                root.setAttribute('data-theme', 'dark');
+                themeLabel.textContent = 'Light';
+            }
+
+            function applyThemeLabels(isDark) {
+                document.querySelectorAll('#themeLabel, .themeLabelDup').forEach(el => {
+                    el.textContent = isDark ? 'Light' : 'Dark';
+                });
+            }
+            function toggleTheme() {
+                const isDark = root.getAttribute('data-theme') === 'dark';
+                if (isDark) {
+                    root.removeAttribute('data-theme');
+                    localStorage.setItem('mc-theme', 'light');
+                    applyThemeLabels(false);
+                } else {
+                    root.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('mc-theme', 'dark');
+                    applyThemeLabels(true);
+                }
+            }
+            themeToggle.addEventListener('click', toggleTheme);
+            const themeToggleDesktop = document.getElementById('themeToggleDesktop');
+            if (themeToggleDesktop) themeToggleDesktop.addEventListener('click', toggleTheme);
+            applyThemeLabels(root.getAttribute('data-theme') === 'dark');
+
+            const passInput = document.getElementById('password');
+            const togglePass = document.getElementById('togglePass');
+            if (togglePass && passInput) {
+                togglePass.addEventListener('click', function () {
+                    const show = passInput.type === 'password';
+                    passInput.type = show ? 'text' : 'password';
+                    this.classList.toggle('showing', show);
+                    this.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+                });
+            }
+
+            const form = document.getElementById('loginForm');
+            const joinForm = document.getElementById('joinForm');
+            const errorMsg = document.getElementById('errorMsg');
+            const errorText = document.getElementById('errorText');
+            const btnLogin = document.getElementById('btnLogin');
+            const btnJoinEmail = document.getElementById('btnJoinEmail');
+
+            const DEMO_EMAIL = 'demo@measurecraft.com';
+            const DEMO_PASS = 'demo1234';
+
+            function showError(msg) {
+                errorText.textContent = msg || 'Something went wrong.';
+                errorMsg.classList.add('show');
+            }
+            function clearError() { errorMsg.classList.remove('show'); }
+
+            function saveSession(session, remember) {
+                const payload = JSON.stringify(session);
+                if (remember) {
+                    localStorage.setItem('mc-session', payload);
+                    sessionStorage.removeItem('mc-session');
+                } else {
+                    sessionStorage.setItem('mc-session', payload);
+                    localStorage.removeItem('mc-session');
+                }
+                if (session.participantId) {
+                    try { sessionStorage.setItem('mc-research-participant', session.participantId); } catch (_) {}
+                }
+            }
+            function goToModes() { window.location.href = 'mode-select.html'; }
+
+            // Email join for study participants (no password)
+            if (joinForm) {
+                joinForm.addEventListener('submit', async function (e) {
+                    e.preventDefault();
+                    clearError();
+                    const email = (document.getElementById('joinEmail').value || '').trim().toLowerCase();
+                    const participantId = (document.getElementById('joinParticipant').value || '').trim();
+                    const remember = !!(document.getElementById('joinRemember') && document.getElementById('joinRemember').checked);
+                    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                        showError('Please enter a valid email address.');
+                        return;
+                    }
+                    if (!participantId) {
+                        showError('Participant ID is required. Choose a unique ID (e.g. P01 or QS-03).');
+                        return;
+                    }
+                    btnJoinEmail.disabled = true;
+                    btnJoinEmail.classList.add('loading');
+                    try {
+                        const resp = await fetch('/api/auth/email-join', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: email, participantId: participantId }),
+                        });
+                        const data = await resp.json().catch(function () { return {}; });
+                        if (resp.ok && data.success && data.session) {
+                            saveSession(data.session, remember);
+                            goToModes();
+                            return;
+                        }
+                        if (resp.status === 409 || (data && data.code === 'EMAIL_PARTICIPANT_LOCKED')) {
+                            showError(data.error || 'This email is already linked to another participant ID, or this ID already exists.');
+                            if (data.participantId) {
+                                const pidEl = document.getElementById('joinParticipant');
+                                if (pidEl) pidEl.value = data.participantId;
+                            }
+                            btnJoinEmail.disabled = false;
+                            btnJoinEmail.classList.remove('loading');
+                            return;
+                        }
+                        if (data && data.code === 'PARTICIPANT_ID_REQUIRED') {
+                            showError(data.error || 'Participant ID is required.');
+                            btnJoinEmail.disabled = false;
+                            btnJoinEmail.classList.remove('loading');
+                            return;
+                        }
+                        showError((data && data.error) || 'Could not join. Try again.');
+                        btnJoinEmail.disabled = false;
+                        btnJoinEmail.classList.remove('loading');
+                        return;
+                    } catch (_) {
+                        saveSession({
+                            email: email,
+                            name: email.split('@')[0] || 'User',
+                            participantId: participantId || null,
+                            provider: 'email',
+                            loggedInAt: Date.now(),
+                        }, remember);
+                        goToModes();
+                    }
+                });
+            }
+
+            // Demo / admin password login
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    clearError();
+                    const email = document.getElementById('email').value.trim().toLowerCase();
+                    const password = document.getElementById('password').value;
+                    const remember = document.getElementById('remember').checked;
+                    btnLogin.disabled = true;
+                    btnLogin.classList.add('loading');
+                    setTimeout(function () {
+                        if (email === DEMO_EMAIL && password === DEMO_PASS) {
+                            saveSession({ email: email, name: 'demo', provider: 'demo', loggedInAt: Date.now() }, remember);
+                            goToModes();
+                        } else {
+                            showError('Invalid email or password. Use Continue with email above, or demo@measurecraft.com / demo1234.');
+                            btnLogin.disabled = false;
+                            btnLogin.classList.remove('loading');
+                        }
+                    }, 500);
+                });
+            }
+
+            const forgotLink = document.getElementById('forgotLink');
+            if (forgotLink) {
+                forgotLink.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    alert('For the research study, use “Continue with email” — no password is required.');
+                });
+            }
+
+            // Social buttons — Google works when GOOGLE_CLIENT_ID is set; others guide user
+            let googleReady = false;
+            async function initGoogleJoin() {
+                try {
+                    const resp = await fetch('/api/auth/config');
+                    const cfg = await resp.json().catch(function () { return {}; });
+                    const clientId = cfg && cfg.googleClientId;
+                    if (!clientId) return;
+                    await new Promise(function (resolve, reject) {
+                        if (window.google && window.google.accounts) return resolve();
+                        const s = document.createElement('script');
+                        s.src = 'https://accounts.google.com/gsi/client';
+                        s.async = true;
+                        s.onload = resolve;
+                        s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                    window.google.accounts.id.initialize({
+                        client_id: clientId,
+                        callback: async function (response) {
+                            clearError();
+                            try {
+                                const r = await fetch('/api/auth/google', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        credential: response.credential,
+                                        participantId: (document.getElementById('joinParticipant').value || '').trim() || undefined,
+                                    }),
+                                });
+                                const data = await r.json().catch(function () { return {}; });
+                                if (!r.ok || !data.success) throw new Error(data.error || 'Google sign-in failed');
+                                saveSession(data.session, true);
+                                goToModes();
+                            } catch (err) {
+                                showError(err.message || 'Google sign-in failed');
+                            }
+                        },
+                    });
+                    googleReady = true;
+                } catch (_) {}
+            }
+            initGoogleJoin();
+
+            const btnGoogle = document.getElementById('btnGoogle');
+            if (btnGoogle) {
+                btnGoogle.addEventListener('click', function () {
+                    clearError();
+                    if (googleReady && window.google && window.google.accounts) {
+                        try {
+                            window.google.accounts.id.prompt();
+                        } catch (_) {
+                            showError('Google sign-in could not open. Enter your email below and press Continue.');
+                        }
+                    } else {
+                        // No GOOGLE_CLIENT_ID — guide user to email field (still works for Gmail addresses)
+                        const emailEl = document.getElementById('joinEmail');
+                        if (emailEl) {
+                            emailEl.focus();
+                            if (!emailEl.value) emailEl.placeholder = 'you@gmail.com';
+                        }
+                        showError('Google one-click is not configured on this server. Enter your Gmail below and press Continue.');
+                    }
+                });
+            }
+            const btnMs = document.getElementById('btnMicrosoft');
+            if (btnMs) {
+                btnMs.addEventListener('click', function () {
+                    clearError();
+                    const emailEl = document.getElementById('joinEmail');
+                    if (emailEl) {
+                        emailEl.focus();
+                        emailEl.placeholder = 'you@outlook.com';
+                    }
+                    showError('Enter your Microsoft / Outlook email below and press Continue.');
+                });
+            }
+            const btnApple = document.getElementById('btnApple');
+            if (btnApple) {
+                btnApple.addEventListener('click', function () {
+                    clearError();
+                    const emailEl = document.getElementById('joinEmail');
+                    if (emailEl) {
+                        emailEl.focus();
+                        emailEl.placeholder = 'you@icloud.com';
+                    }
+                    showError('Enter your Apple / iCloud email below and press Continue.');
+                });
+            }
+
+            try {
+                const s = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    if (parsed && parsed.email) window.location.href = 'mode-select.html';
+                }
+            } catch (_) {}
+        })();
+    </script>
+
+    <!-- AI Assistant (bottom-right, collapsible) -->
+    <style>
+        .mc-ai-fab {
+            position: fixed; right: 20px; bottom: 20px; z-index: 9990;
+            width: 52px; height: 52px; border-radius: 50%;
+            background: var(--teal, #2F6E62); color: #fff; border: none;
+            box-shadow: 0 6px 20px rgba(47,110,98,0.35);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
+        }
+        .mc-ai-fab:hover { transform: scale(1.06); box-shadow: 0 8px 24px rgba(47,110,98,0.45); }
+        .mc-ai-fab.hidden-down { transform: translateY(120%); opacity: 0; pointer-events: none; }
+        .mc-ai-panel {
+            position: fixed; right: 20px; bottom: 84px; z-index: 9991;
+            width: min(340px, calc(100vw - 32px));
+            background: var(--card-bg); color: var(--text);
+            border: 1px solid var(--card-border); border-radius: 14px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+            overflow: hidden; display: none; flex-direction: column;
+            max-height: min(420px, 70vh);
+        }
+        .mc-ai-panel.open { display: flex; animation: mcAiIn 0.22s ease; }
+        @keyframes mcAiIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        .mc-ai-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 14px; border-bottom: 1px solid var(--card-border);
+            background: var(--input-bg); color: var(--text); font-weight: 600; font-size: 14px;
+        }
+        .mc-ai-head .mc-ai-actions { display: flex; gap: 6px; }
+        .mc-ai-head button {
+            background: transparent; border: 1px solid var(--card-border);
+            border-radius: 6px; width: 28px; height: 28px; cursor: pointer;
+            color: var(--text-secondary); font-size: 14px; line-height: 1;
+        }
+        .mc-ai-head button:hover { border-color: var(--brass); color: var(--text); }
+        .mc-ai-body { padding: 14px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); overflow-y: auto; flex: 1; }
+        .mc-ai-body strong { color: var(--text); font-weight: 600; }
+        .mc-ai-foot { padding: 10px 14px; border-top: 1px solid var(--card-border); display: flex; gap: 8px; }
+        .mc-ai-foot input {
+            flex: 1; border: 1px solid var(--input-border); border-radius: 8px;
+            padding: 8px 10px; font-size: 13px; background: var(--input-bg); color: var(--text);
+            font-family: inherit;
+        }
+        .mc-ai-foot input::placeholder { color: var(--text-muted); }
+        .mc-ai-foot button {
+            background: var(--teal, #2F6E62); color: #fff; border: none; border-radius: 8px;
+            padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .mc-ai-show-tab {
+            position: fixed; right: 20px; bottom: 0; z-index: 9989;
+            background: var(--teal, #2F6E62); color: #fff; border: none;
+            border-radius: 10px 10px 0 0; padding: 6px 14px; font-size: 12px; font-weight: 600;
+            cursor: pointer; display: none; box-shadow: 0 -2px 10px rgba(47,110,98,0.25);
+        }
+        .mc-ai-show-tab.visible { display: block; }
+    </style>
+    <button type="button" class="mc-ai-fab" id="mcAiFab" title="AI Assistant" aria-label="Open AI Assistant">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div class="mc-ai-panel" id="mcAiPanel" role="dialog" aria-label="AI Assistant">
+        <div class="mc-ai-head">
+            <span>AI Assistant</span>
+            <div class="mc-ai-actions">
+                <button type="button" id="mcAiClose" title="Close">×</button>
+            </div>
+        </div>
+        <div class="mc-ai-body" id="mcAiBody">
+            <strong>Hi — how can I help?</strong><br><br>
+            Ask about calibration, measuring walls, AI detection, export, or navigation. (Demo replies for now.)
+        </div>
+        <div class="mc-ai-foot">
+            <input type="text" id="mcAiInput" placeholder="Ask something…" autocomplete="off" />
+            <button type="button" id="mcAiSend">Send</button>
+        </div>
+    </div>
+    <script>
+        (function () {
+            const fab = document.getElementById('mcAiFab');
+            const panel = document.getElementById('mcAiPanel');
+            const body = document.getElementById('mcAiBody');
+            const input = document.getElementById('mcAiInput');
+            if (!fab || !panel) return;
+            function openPanel() { panel.classList.add('open'); }
+            function closePanel() { panel.classList.remove('open'); }
+            fab.addEventListener('click', () => {
+                if (panel.classList.contains('open')) closePanel(); else openPanel();
+            });
+            document.getElementById('mcAiClose').addEventListener('click', closePanel);
+            let mcAiHistory = [];
+            function escapeMc(s) {
+                return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            function mcAiHeaders() {
+                const h = { 'Content-Type': 'application/json' };
+                try {
+                    const tok = localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token');
+                    if (tok) h['X-MC-Token'] = tok;
+                } catch (_) {}
+                return h;
+            }
+            function offlineReply(q) {
+                const lower = (q || '').toLowerCase();
+                let r = 'I can help with calibration, tools, and exports. Try asking about scale, walls, or AI detect.';
+                if (lower.includes('calibr')) r = 'Use Calibrate: pick two points on a known dimension, enter the real length in metres, then Apply.';
+                else if (lower.includes('zoom') || lower.includes('track')) r = 'Use + / − / Fit in the toolbar. Lock Zoom disables trackpad scroll-zoom so pan is easier (Ctrl+scroll still zooms).';
+                else if (lower.includes('export') || lower.includes('boq')) r = 'In the workspace, open Export for Excel BOQ, PDF/PNG marked plan, or project JSON.';
+                else if (lower.includes('wall') || lower.includes('measure')) r = 'Select Wall or Measure from the toolbar, click points along the plan, finish with Enter or double-click.';
+                else if (lower.includes('ai') || lower.includes('detect')) r = 'After loading a drawing and calibrating, use AI Detect to propose elements, then accept or edit them.';
+                return r;
+            }
+            async function reply(q) {
+                const thinkId = 'mcAiThink' + Date.now();
+                body.innerHTML += '<br><br><strong>You:</strong> ' + escapeMc(q) + '<br><strong>AI:</strong> <span id="' + thinkId + '">…</span>';
+                body.scrollTop = body.scrollHeight;
+                const slot = document.getElementById(thinkId);
+                let answer = null;
+                try {
+                    const resp = await fetch('/api/assistant-chat', {
+                        method: 'POST',
+                        headers: mcAiHeaders(),
+                        body: JSON.stringify({ message: q, history: mcAiHistory }),
+                    });
+                    const data = await resp.json().catch(() => ({}));
+                    if (resp.ok && data && data.success && data.answer) answer = data.answer;
+                } catch (_) {}
+                const finalText = answer || offlineReply(q);
+                if (slot) slot.textContent = finalText;
+                if (answer) {
+                    mcAiHistory.push({ role: 'user', text: q }, { role: 'assistant', text: answer });
+                    if (mcAiHistory.length > 12) mcAiHistory = mcAiHistory.slice(-12);
+                }
+                body.scrollTop = body.scrollHeight;
+            }
+            document.getElementById('mcAiSend').addEventListener('click', () => {
+                const q = (input.value || '').trim();
+                if (!q) return;
+                input.value = '';
+                reply(q);
+            });
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('mcAiSend').click(); });
+        })();
+    </script>
+</body>
+</html>

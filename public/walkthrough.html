@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MeasureCraft — Product Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F7F4EC; --bg-card:#FFFDFC; --bg-soft:#EEE9DE; --bg-hover:#E7E0D1;
+  --text:#211F1B; --text-2:#665D51; --text-3:#948979;
+  --border:#D9CFBD; --border-soft:rgba(102,93,81,0.14);
+  --brass:#B77A2A; --brass-h:#8F5B18; --brass-soft:#F5E7CF;
+  --teal:#176B62; --teal-soft:#E1F0EC;
+  --success:#2F7D4F; --success-soft:#E8F5EE;
+  --warning:#B8842B; --warning-soft:#F5E9CE;
+  --info:#2563eb;
+  --radius:12px; --radius-sm:7px;
+  --shadow-md:0 18px 50px rgba(48,39,26,0.14); --shadow-sm:0 5px 16px rgba(48,39,26,0.08);
+  --font:'Work Sans',system-ui,sans-serif;
+  --font-display:'Fraunces',serif;
+  --font-mono:'Space Mono',ui-monospace,monospace;
+}
+.app[data-theme="dark"]{
+  --bg:#16140F; --bg-card:#201D17; --bg-soft:#1B1812; --bg-hover:#2A251D;
+  --text:#F7F1E6; --text-2:#C9BFAE; --text-3:#A89E8E;
+  --border:#4A4338; --border-soft:rgba(167,158,142,0.18);
+  --brass:#D0A257; --brass-h:#E0B569; --brass-soft:#3A2E1C;
+  --teal:#5CB8A8; --teal-soft:#1A2E2A;
+  --success:#4FA26E; --success-soft:#12271A;
+  --warning:#D0A257;
+}
+.app{ transition:background .5s ease, color .5s ease; }
+.app *{ transition:background-color .45s ease, color .45s ease, border-color .45s ease; }
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:radial-gradient(circle at 50% -10%, #FFFDF8 0, #E7E0D1 58%, #DDD4C4 100%); font-family:var(--font); color:var(--text);
+  display:flex; flex-direction:column; align-items:center; padding:42px 16px 72px; min-height:100vh;
+}
+/* Embed mode — used when shown inside the empty PDF/viewer preview iframe */
+body.embed{
+  padding:4px 4px 6px; min-height:100%; height:100%;
+  background:#EEE9DE;
+  overflow:hidden;
+  display:flex; flex-direction:column; align-items:stretch;
+}
+html.embed, html.embed body{ height:100%; }
+body.embed .page-kicker,
+body.embed .page-title,
+body.embed .page-sub,
+body.embed .page-note{ display:none !important; }
+body.embed .window{
+  width:100%; max-width:100%; border-radius:10px; box-shadow:none;
+  display:flex; flex-direction:column; flex:1 1 auto; min-height:0; max-height:none;
+}
+body.embed .app{ flex:1; display:flex; flex-direction:column; min-height:0; }
+body.embed .app-body{ flex:1; height:auto !important; min-height:0; grid-template-columns:minmax(140px, 22%) 1fr minmax(140px, 22%); }
+body.embed .panel-left, body.embed .panel-right{ padding:12px 10px; font-size:10.5px; overflow:auto; }
+body.embed .app-header{ padding:8px 12px; }
+body.embed .brand-icon{ width:28px; height:28px; font-size:13px; border-radius:8px; }
+body.embed .brand h1{ font-size:13px; }
+body.embed .brand .tagline{ font-size:9px; }
+body.embed .hbtn{ padding:4px 8px; font-size:10px; }
+body.embed .stepper-bar{ padding:8px 12px 9px; }
+body.embed .step-num{ width:20px; height:20px; font-size:9px; }
+body.embed .step-title{ font-size:9px; }
+body.embed .p-title{ font-size:13px; }
+body.embed .p-hint{ font-size:10.5px; }
+body.embed .panel-note{ margin-top:10px; padding:8px 9px; font-size:9.5px; }
+body.embed .viewer-toolbar{ padding:5px 8px; font-size:9.5px; }
+body.embed .controls{ margin-top:6px; gap:5px; flex-shrink:0; }
+body.embed .controls button{ padding:5px 10px; font-size:10px; }
+body.embed .progressbar{ margin-top:3px; width:100%; max-width:100%; flex-shrink:0; }
+body.embed .caption-wrap{ margin-top:6px; height:auto; min-height:24px; flex-shrink:0; }
+body.embed .caption{ font-size:11px; padding:5px 12px; }
+body.embed .kbdhint{ display:none; }
+body.embed .chrome-top,
+body.embed .chrome-addr{ display:none !important; }
+body.embed .window{ border-radius:0; border:none; background:transparent; }
+body.embed .app{ border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+.page-kicker{font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--brass-h); margin-bottom:8px; font-weight:700;}
+.page-title{font-family:var(--font-display); font-size:32px; font-weight:600; margin-bottom:4px; letter-spacing:-.45px;}
+.page-sub{font-size:13px; color:#6B6155; margin:0 0 8px; text-align:center;}
+.page-sub b{color:var(--text);}
+.page-note{font-size:11px; color:var(--text-3); margin-bottom:24px; text-align:center; max-width:620px; line-height:1.5;}
+
+/* --- fake browser chrome --- */
+.window{
+  width:1120px; max-width:100%; background:#D9D1C0; border:1px solid rgba(74,60,40,.14); border-radius:16px 16px 0 0;
+  box-shadow:var(--shadow-md); overflow:hidden;
+}
+.chrome-top{ display:flex; align-items:center; gap:10px; padding:10px 14px 0; }
+.dots{display:flex; gap:6px;}
+.dots span{width:11px;height:11px;border-radius:50%; display:block;}
+.dots span:nth-child(1){background:#EC6A5E;}
+.dots span:nth-child(2){background:#F4BF4F;}
+.dots span:nth-child(3){background:#61C554;}
+.chrome-tab{
+  margin-left:10px; background:#F5F2EA; border-radius:8px 8px 0 0; padding:7px 16px 6px;
+  font-size:11px; color:var(--text-2); display:flex; align-items:center; gap:6px; max-width:220px;
+}
+.chrome-tab .fav{width:12px;height:12px;border-radius:3px;background:var(--text); flex-shrink:0;}
+.chrome-tab span{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.chrome-addr{
+  margin:8px 14px 10px; background:#F5F2EA; border-radius:20px; padding:6px 14px;
+  font-size:11.5px; color:var(--text-2); font-family:var(--font-mono); display:flex; align-items:center; gap:8px;
+}
+.chrome-addr .lock{opacity:.6;}
+
+/* --- app shell --- */
+.app{ position:relative; background:var(--bg); overflow:hidden; }
+.app-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 24px; background:var(--bg-card); border-bottom:1px solid var(--border);
+}
+.brand{display:flex; align-items:center; gap:11px;}
+.brand-icon{width:38px;height:38px;border-radius:11px;background:linear-gradient(145deg,#1B514B,#0C302D);color:#F8E8C9;
+  display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:16px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 4px 10px rgba(23,107,98,.2);}
+.brand h1{font-family:var(--font-display); font-size:16px; font-weight:600; margin:0; letter-spacing:-.15px;}
+.brand .tagline{font-size:10.5px; color:var(--text-2); margin-top:1px;}
+.header-actions{display:flex; align-items:center; gap:7px;}
+.hbtn{
+  background:var(--bg-soft); border:1px solid var(--border); border-radius:6px;
+  padding:6px 11px; font-size:11px; font-weight:500; color:var(--text-2); font-family:var(--font);
+}
+.hbtn.pro{background:var(--teal); border-color:var(--teal); color:#fff; font-weight:600;}
+.hbtn.moon{width:28px; padding:0; text-align:center; border-radius:50%;}
+
+/* stepper */
+.stepper-bar{background:var(--bg-card); border-bottom:1px solid var(--border); padding:12px 24px 13px;}
+.stepper{display:flex; justify-content:space-between; max-width:900px; margin:0 auto;}
+.step{display:flex; flex-direction:column; align-items:center; gap:5px; flex:1; position:relative;}
+.step:not(:last-child)::after{
+  content:''; position:absolute; top:12px; left:calc(50% + 15px); right:calc(-50% + 15px);
+  height:2px; background:var(--border); z-index:1; transition:background .5s ease;
+}
+.step.done:not(:last-child)::after{background:var(--success);}
+.step-num{
+  width:24px;height:24px;border-radius:50%; border:2px solid var(--border); background:var(--bg-card);
+  color:var(--text-3); font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:2; transition:all .4s ease; font-family:var(--font-mono);
+}
+.step.active .step-num{border-color:var(--brass); background:var(--brass); color:#fff; box-shadow:0 0 0 5px var(--brass-soft);}
+.step.done .step-num{border-color:var(--success); background:var(--success); color:#fff;}
+.step-title{font-size:10.5px; font-weight:600; color:var(--text-3); transition:color .4s ease;}
+.step.active .step-title{color:var(--text);}
+.step.done .step-title{color:var(--success);}
+
+/* body layout */
+.app-body{display:grid; grid-template-columns:270px 1fr 270px; height:454px;}
+.panel-left,.panel-right{background:var(--bg-card); padding:20px 18px; overflow:hidden; font-size:11.5px;}
+.panel-left{border-right:1px solid var(--border);}
+.panel-right{border-left:1px solid var(--border);}
+.panel-center{background:var(--bg-soft); position:relative; display:flex; flex-direction:column; min-width:0;}
+
+.eyebrow{font-size:9.5px; font-weight:700; letter-spacing:.06em; color:var(--text-3); text-transform:uppercase; margin-bottom:5px;}
+.p-title{font-family:var(--font-display); font-size:15px; font-weight:600; margin-bottom:7px;}
+.p-hint{font-size:11.5px; color:var(--text-2); line-height:1.55;}
+.panel-note{margin-top:16px; padding:10px 11px; background:var(--teal-soft); border-left:3px solid var(--teal); border-radius:0 8px 8px 0; color:var(--text-2); font-size:10.5px; line-height:1.5;}
+.panel-note strong{display:block; color:var(--teal); font-size:9px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:3px;}
+
+.viewer-toolbar{display:flex; align-items:center; gap:6px; padding:8px 12px; background:var(--bg-card); border-bottom:1px solid var(--border); font-size:10.5px; color:var(--text-3);}
+.viewer-toolbar .tbtn{width:24px;height:24px;border:1px solid var(--border); border-radius:6px; background:var(--bg); display:flex; align-items:center; justify-content:center; font-size:11px;}
+.viewer-toolbar .sep{width:1px;height:16px;background:var(--border);}
+.viewer-toolbar .meta{margin-left:auto; font-family:var(--font-mono); font-size:10px;}
+.viewer-area{flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:#d8d2c4; overflow:hidden;}
+[data-scene="upload"] .viewer-area, [data-scene="upload"] .viewer-toolbar { opacity:.45; }
+
+.plan-wrap{position:relative; width:78%; box-shadow:var(--shadow-md);}
+.plan-wrap svg{display:block; width:100%; background:#fff;}
+
+/* upload dropzone */
+.dropzone{
+  width:82%; border:2px dashed var(--border); border-radius:12px; background:var(--bg-card);
+  padding:34px 16px; text-align:center; transition:all .3s ease;
+}
+.dropzone.drag{border-color:var(--brass); background:var(--brass-soft);}
+.dropzone svg{width:30px;height:30px; color:var(--brass); margin-bottom:8px;}
+.dropzone strong{display:block; font-size:13px; margin-bottom:3px; font-family:var(--font-display); font-weight:600;}
+.dropzone p{font-size:10.5px; color:var(--text-2);}
+.file-chip{
+  display:flex; align-items:center; gap:7px; margin-top:12px; padding:7px 10px;
+  background:var(--success-soft); border-radius:6px; font-size:10.5px; color:var(--success); font-weight:600;
+  opacity:0; transform:translateY(4px); transition:all .4s ease;
+}
+.file-chip.show{opacity:1; transform:translateY(0);}
+
+/* calibrate */
+.ruler-dot{fill:var(--brass); stroke:#fff; stroke-width:1.5;}
+.ruler-line{stroke:var(--brass); stroke-width:2; stroke-dasharray:5 4; opacity:0; transition:opacity .3s ease;}
+.ruler-line.show{opacity:1;}
+.len-popover{
+  position:absolute; background:var(--bg-card); border:1px solid var(--brass); border-radius:8px;
+  padding:7px 11px; font-size:11px; font-family:var(--font-mono); box-shadow:var(--shadow-md);
+  opacity:0; transform:translateY(4px) scale(.95); transition:all .35s ease;
+}
+.len-popover.show{opacity:1; transform:translateY(0) scale(1);}
+.calibrate-banner{
+  position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:6;
+  background:var(--info); color:#fff; font-size:11px; font-weight:600; padding:6px 14px; border-radius:20px;
+  opacity:0; transition:opacity .4s ease;
+}
+.calibrate-banner.show{opacity:1;}
+
+/* AI detect boxes */
+.det-box{position:absolute; border:2px solid var(--teal); border-radius:3px; opacity:0; transition:opacity .35s ease;}
+.det-box.show{opacity:1;}
+.det-box .tag{
+  position:absolute; top:-17px; left:-2px; background:var(--teal); color:#fff; font-size:8.5px; font-weight:700;
+  padding:1.5px 5px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;
+}
+.det-box.door{border-color:var(--warning);}
+.det-box.door .tag{background:var(--warning);}
+.scan-line{
+  position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,var(--teal),transparent);
+  top:0; opacity:0;
+}
+.scan-line.run{opacity:1; animation:scan 1.6s ease-in-out;}
+@keyframes scan{ 0%{top:2%;} 100%{top:96%;} }
+
+/* review list */
+.elem-list{width:84%; font-family:var(--font);}
+.elem-row{
+  display:flex; align-items:center; justify-content:space-between; padding:8px 4px;
+  border-bottom:1px solid var(--border-soft); font-size:11px; background:var(--bg-card);
+  border-radius:6px; margin-bottom:5px; padding:8px 10px;
+  opacity:0; transform:translateX(-10px); transition:all .4s cubic-bezier(.2,.8,.3,1);
+}
+.elem-row.show{opacity:1; transform:translateX(0);}
+.elem-row .nm{font-weight:600;}
+.elem-row .dim{color:var(--text-3); font-family:var(--font-mono); font-size:9.5px; margin-left:5px;}
+.check{
+  width:16px;height:16px;border-radius:50%; border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center;
+  font-size:9px; color:transparent; transition:all .3s ease;
+}
+.check.on{background:var(--success); border-color:var(--success); color:#fff;}
+
+/* rates */
+.rate-table{width:88%; font-family:var(--font);}
+.rate-row{display:flex; align-items:center; justify-content:space-between; padding:8px 2px; border-bottom:1px solid var(--border-soft); font-size:11px;}
+.rate-row .nm{color:var(--text-2);}
+.rate-row .val{font-family:var(--font-mono); font-size:10.5px;}
+.rate-input{
+  width:64px; padding:4px 7px; border:1px solid var(--border); border-radius:5px; background:var(--bg-card);
+  font-family:var(--font-mono); font-size:10.5px; text-align:right; margin-left:6px; transition:border-color .3s ease;
+}
+.rate-input.focus{border-color:var(--brass); box-shadow:0 0 0 3px var(--brass-soft);}
+.total-strip{
+  margin-top:12px; background:var(--brass-soft); border:1px solid var(--brass); border-radius:8px;
+  padding:12px 16px; display:flex; align-items:center; justify-content:space-between;
+  opacity:0; transform:translateY(6px); transition:all .5s ease;
+}
+.total-strip.show{opacity:1; transform:translateY(0);}
+.total-strip .lbl{font-size:10.5px; color:var(--text-2); font-weight:600;}
+.total-strip .amt{font-family:var(--font-display); font-size:19px; font-weight:700; color:var(--brass-h); font-variant-numeric:tabular-nums;}
+
+/* export */
+.export-card{
+  width:66%; background:var(--bg-card); border:1px solid var(--border); border-radius:12px;
+  padding:26px 20px; text-align:center; box-shadow:var(--shadow-md);
+  opacity:0; transform:scale(.94); transition:all .5s cubic-bezier(.2,.8,.3,1);
+}
+.export-card.show{opacity:1; transform:scale(1);}
+.export-card .xicon{
+  width:44px;height:44px;border-radius:10px;background:var(--success); color:#fff; margin:0 auto 12px;
+  display:flex;align-items:center;justify-content:center; font-size:19px; font-family:var(--font-display); font-weight:700;
+}
+.export-card .fn{font-family:var(--font-display); font-weight:600; font-size:14px; margin-bottom:3px;}
+.export-card .fn2{font-size:10.5px; color:var(--text-2);}
+.dl-btn{
+  margin-top:16px; background:var(--brass); color:#fff; border:none; padding:9px 20px; border-radius:7px;
+  font-size:12px; font-weight:600; font-family:var(--font); opacity:0; transform:translateY(4px);
+  transition:all .4s ease .25s;
+}
+.dl-btn.show{opacity:1; transform:translateY(0);}
+
+/* right panel summary */
+.sum-block{margin-bottom:14px;}
+.sum-block h4{font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); margin-bottom:6px;}
+.sum-row{display:flex; justify-content:space-between; padding:3px 0; font-size:10.5px;}
+.sum-row .k{color:var(--text-2);}
+.sum-row .v{font-weight:600; font-family:var(--font-mono); font-size:10px; transition:color .3s ease;}
+.sum-row .v.hl{color:var(--brass-h);}
+
+/* fake cursor */
+.cursor{
+  position:absolute; width:20px; height:20px; z-index:50; pointer-events:none;
+  transition:left .9s cubic-bezier(.4,0,.2,1), top .9s cubic-bezier(.4,0,.2,1), opacity .3s ease;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));
+}
+.cursor svg{width:100%;height:100%;}
+.click-ring{
+  position:absolute; width:26px; height:26px; border-radius:50%; border:2px solid var(--brass);
+  transform:translate(-50%,-50%) scale(0); opacity:0; z-index:49; pointer-events:none;
+}
+.click-ring.go{animation:ring .55s ease-out;}
+@keyframes ring{ 0%{transform:translate(-50%,-50%) scale(.3); opacity:.9;} 100%{transform:translate(-50%,-50%) scale(1.6); opacity:0;} }
+
+/* caption */
+.caption-wrap{display:flex; justify-content:center; margin-top:16px; height:32px;}
+.caption{
+  background:var(--text); color:#F5F2EA; padding:8px 20px; border-radius:20px;
+  font-size:12.5px; font-family:var(--font); opacity:0; transition:opacity .45s ease;
+  text-align:center; max-width:640px;
+}
+.caption.show{opacity:1;}
+.caption b{color:var(--brass-soft);}
+
+.progressbar{width:1040px; max-width:100%; height:4px; background:rgba(107,97,85,0.15); border-radius:3px; margin-top:6px; overflow:hidden;}
+.progressfill{height:100%; width:0%; background:var(--brass);}
+
+.controls{margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center;}
+.controls button{
+  font-family:var(--font); cursor:pointer; padding:9px 18px; border-radius:8px;
+  border:1px solid var(--border); background:#fff; color:var(--text); font-size:12px; font-weight:600;
+}
+.controls button.primary{background:var(--brass); border-color:var(--brass); color:#fff;}
+.dotsnav{display:flex; gap:6px; margin-left:6px;}
+.dotsnav button{width:8px;height:8px;padding:0;border-radius:50%;border:none;background:var(--border); cursor:pointer; position:relative;}
+.dotsnav button.on{background:var(--brass); width:18px; border-radius:4px;}
+.dotsnav button::after{
+  content:attr(data-label); position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+  background:#221F1C; color:#fff; font-size:10px; padding:3px 7px; border-radius:5px; white-space:nowrap;
+  opacity:0; pointer-events:none; transition:opacity .2s ease; font-family:'Work Sans',sans-serif;
+}
+.dotsnav button:hover::after{opacity:1;}
+.speedgroup{display:flex; gap:2px; background:var(--bg-soft); border:1px solid var(--border); border-radius:8px; padding:2px;}
+.speedgroup button{padding:5px 9px; border-radius:6px; border:none; background:transparent; font-size:11px; color:var(--text-2);}
+.speedgroup button.on{background:var(--brass); color:#fff;}
+.iconbtn{width:34px; height:34px; padding:0 !important; display:flex; align-items:center; justify-content:center; font-size:14px;}
+.kbdhint{font-size:10.5px; color:#8a8172; margin-top:8px; font-family:'Space Mono',monospace;}
+.kbdhint kbd{background:#fff; border:1px solid #DED5C2; border-radius:4px; padding:1px 5px; font-family:inherit;}
+
+.drag-file{
+  position:absolute; width:34px; height:40px; background:#fff; border:1.5px solid var(--brass); border-radius:5px;
+  z-index:48; opacity:0; pointer-events:none; box-shadow:0 6px 14px rgba(0,0,0,.18);
+  display:flex; align-items:center; justify-content:center; font-size:8px; font-family:var(--font-mono);
+  color:var(--brass-h); font-weight:700; transition:left .9s cubic-bezier(.4,0,.2,1), top .9s cubic-bezier(.4,0,.2,1), opacity .35s ease, transform .35s ease;
+}
+.drag-file.show{opacity:1;}
+.drag-file.drop{opacity:0; transform:scale(.4);}
+
+.zoom-pulse{ transition:transform .5s cubic-bezier(.3,.8,.3,1); }
+/* Disabled: sudden scale jump during AI analysis demo felt jarring */
+/* .zoom-pulse.in{ transform:scale(1.055); } */
+
+.count-up{ font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<script>
+(function(){
+  try {
+    var embed = /(?:\?|&)embed=1(?:&|$)/.test(location.search);
+    if (embed) {
+      document.documentElement.classList.add('embed');
+      document.body.classList.add('embed');
+    }
+  } catch (_) {}
+})();
+</script>
+
+<div class="page-kicker">Guided product walkthrough</div>
+<div class="page-title">MeasureCraft</div>
+<div class="page-sub">From drawing to defensible quantities in <b>six focused steps</b></div>
+<div class="page-note">Use the controls below to pause, replay, change speed, or jump directly to any stage of the takeoff workflow.</div>
+
+<div class="window">
+  <div class="chrome-top">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="chrome-tab"><div class="fav"></div><span>MeasureCraft · Simple Mode</span></div>
+  </div>
+  <div class="chrome-addr"><span class="lock">🔒</span> localhost:3000/measurecraft_quantity_only.html</div>
+
+  <div class="app" id="app" data-scene="upload">
+    <div class="app-header">
+      <div class="brand">
+        <div class="brand-icon" aria-label="MeasureCraft mark">M</div>
+        <div><h1>MeasureCraft</h1><div class="tagline">Simple Mode · Guided quantity takeoff</div></div>
+      </div>
+      <div class="header-actions">
+        <div class="hbtn">Simple Mode</div>
+        <div class="hbtn">Reset</div>
+        <div class="hbtn pro">Open Pro</div>
+        <button class="hbtn moon" id="themeBtn" aria-label="Toggle dark mode">☾</button>
+      </div>
+    </div>
+
+    <div class="stepper-bar">
+      <div class="stepper" id="stepper"></div>
+    </div>
+
+    <div class="app-body">
+      <div class="panel-left" id="leftPanel"></div>
+
+      <div class="panel-center">
+        <div class="viewer-toolbar">
+          <div class="tbtn">−</div><div class="tbtn">+</div><div class="tbtn" style="width:auto;padding:0 8px;">Fit</div>
+          <div class="sep"></div>
+          <span id="tbScale">Scale: not calibrated</span>
+          <span class="meta" id="tbMeta">0 elements</span>
+        </div>
+        <div class="viewer-area zoom-pulse" id="viewerArea">
+          <div class="scan-line" id="scanLine"></div>
+        </div>
+      </div>
+
+      <div class="panel-right" id="rightPanel"></div>
+    </div>
+
+    <div class="cursor" id="cursor" style="left:520px; top:260px;">
+      <svg viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15.5 L12.5 22 L15 20.5 L11.5 14 L18 14 Z" fill="#221F1C" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="click-ring" id="clickRing"></div>
+    <div class="drag-file" id="dragFile">PDF</div>
+  </div>
+</div>
+
+<div class="caption-wrap" aria-live="polite"><div class="caption" id="caption"></div></div>
+<div class="progressbar"><div class="progressfill" id="progressfill"></div></div>
+
+<div class="controls">
+  <button id="replayBtn" class="primary">↻ Replay</button>
+  <button id="pauseBtn">⏸ Pause</button>
+  <button id="muteBtn" class="iconbtn">🔊</button>
+  <div class="speedgroup" id="speedgroup">
+    <button data-speed="0.5">0.5×</button>
+    <button data-speed="1" class="on">1×</button>
+    <button data-speed="1.75">1.75×</button>
+  </div>
+  <div class="dotsnav" id="dotsnav"></div>
+</div>
+<div class="kbdhint"><kbd>Space</kbd> pause · <kbd>←</kbd> <kbd>→</kbd> jump step · <kbd>M</kbd> mute</div>
+<div class="page-note" style="margin-top:12px;margin-bottom:0;">A good takeoff is traceable: calibrate first, review every detection, then price the quantities.</div>
+
+<script>
+const stepsMeta = [
+  {n:1, t:"Upload"},
+  {n:2, t:"Calibrate"},
+  {n:3, t:"AI analysis"},
+  {n:4, t:"Review"},
+  {n:5, t:"Rates"},
+  {n:6, t:"Export"},
+];
+const stepperEl = document.getElementById('stepper');
+stepsMeta.forEach(s=>{
+  const el = document.createElement('div');
+  el.className = 'step'; el.id = 'step'+s.n;
+  el.innerHTML = `<div class="step-num">${s.n}</div><div class="step-title">${s.t}</div>`;
+  stepperEl.appendChild(el);
+});
+const dotsnav = document.getElementById('dotsnav');
+stepsMeta.forEach((s,i)=>{
+  const b = document.createElement('button'); b.id='dot'+i; b.dataset.label = s.t;
+  b.addEventListener('click', ()=>{ idx=i; paused=true; app.removeAttribute('data-theme'); document.getElementById('pauseBtn').textContent='▶ Resume'; clearTimeout(timer); playScene(idx); });
+  dotsnav.appendChild(b);
+});
+
+const app = document.getElementById('app');
+const leftPanel = document.getElementById('leftPanel');
+const rightPanel = document.getElementById('rightPanel');
+const viewerArea = document.getElementById('viewerArea');
+const cursor = document.getElementById('cursor');
+const clickRing = document.getElementById('clickRing');
+const caption = document.getElementById('caption');
+const tbScale = document.getElementById('tbScale');
+const tbMeta = document.getElementById('tbMeta');
+const progressfill = document.getElementById('progressfill');
+const dragFile = document.getElementById('dragFile');
+const themeBtn = document.getElementById('themeBtn');
+themeBtn.addEventListener('click', ()=>{
+  const dark = app.getAttribute('data-theme') === 'dark';
+  if(dark){ app.removeAttribute('data-theme'); themeBtn.textContent='☾'; }
+  else { app.setAttribute('data-theme','dark'); themeBtn.textContent='☀'; }
+});
+
+/* ---------- sound ---------- */
+let audioCtx = null, muted = true; /* muted by default — no demo sound */
+function beep(freq=680, dur=0.05, vol=0.05){
+  if(muted) return;
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    o.stop(audioCtx.currentTime + dur);
+  }catch(e){}
+}
+document.getElementById('muteBtn').textContent = '🔇';
+document.getElementById('muteBtn').addEventListener('click', (e)=>{
+  muted = !muted; e.target.textContent = muted ? '🔇' : '🔊';
+});
+
+/* ---------- speed control ---------- */
+let speedMult = 1;
+document.querySelectorAll('#speedgroup button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#speedgroup button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); speedMult = parseFloat(b.dataset.speed);
+    scheduleNext(true);
+  });
+});
+
+/* ---------- count-up helper ---------- */
+function countUp(el, from, to, ms, prefix='LKR '){
+  const start = performance.now();
+  function tick(t){
+    const p = Math.min(1, (t-start)/ms);
+    const eased = 1 - Math.pow(1-p, 3);
+    const val = Math.round(from + (to-from)*eased);
+    el.textContent = prefix + val.toLocaleString('en-US');
+    if(p<1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function setStepStates(activeIdx){
+  stepsMeta.forEach((s,i)=>{
+    const el = document.getElementById('step'+s.n);
+    el.classList.remove('active','done');
+    if(i<activeIdx) el.classList.add('done');
+    else if(i===activeIdx) el.classList.add('active');
+    document.getElementById('dot'+i).classList.toggle('on', i===activeIdx);
+  });
+}
+function setCaption(html){
+  caption.classList.remove('show');
+  setTimeout(()=>{ caption.innerHTML = html; caption.classList.add('show'); }, 160);
+}
+function moveCursor(x,y,cb,delay=900){
+  cursor.style.left = x+'px'; cursor.style.top = y+'px';
+  setTimeout(()=>{
+    clickRing.style.left = x+'px'; clickRing.style.top = y+'px';
+    clickRing.classList.remove('go'); void clickRing.offsetWidth; clickRing.classList.add('go');
+    beep(720, 0.045, 0.045);
+    if(cb) cb();
+  }, delay/speedMult);
+}
+/* Returns {x,y} of an element's center, in coordinates relative to #app
+   (the positioning context shared by the cursor, click-ring and drag-file). */
+function centerOf(el, offsetX, offsetY){
+  const r = el.getBoundingClientRect();
+  const a = app.getBoundingClientRect();
+  return {
+    x: r.left - a.left + (offsetX !== undefined ? offsetX : r.width/2),
+    y: r.top - a.top + (offsetY !== undefined ? offsetY : r.height/2)
+  };
+}
+/* Move the cursor to the center of a live DOM element (auto-converts coordinates). */
+function moveCursorToEl(el, cb, delay=900, offsetX, offsetY){
+  const p = centerOf(el, offsetX, offsetY);
+  moveCursor(p.x, p.y, cb, delay);
+}
+/* Converts a point in an SVG's own viewBox units to #app-relative pixel coordinates
+   (accounts for the SVG being scaled/positioned on the page). */
+function svgPointToApp(svgEl, vx, vy){
+  const vb = svgEl.viewBox.baseVal;
+  const r = svgEl.getBoundingClientRect();
+  const a = app.getBoundingClientRect();
+  return {
+    x: r.left - a.left + ((vx - vb.x) / vb.width) * r.width,
+    y: r.top - a.top + ((vy - vb.y) / vb.height) * r.height
+  };
+}
+function clear(){
+  leftPanel.innerHTML=''; rightPanel.innerHTML='';
+  viewerArea.innerHTML = '<div class="scan-line" id="scanLine"></div>';
+  viewerArea.classList.remove('in');
+  dragFile.classList.remove('show','drop');
+}
+
+const panelSVGWalls = `
+  <rect x="10" y="10" width="380" height="270" fill="#fff" stroke="#DED5C2" stroke-width="1"/>
+  <rect x="34" y="34" width="150" height="100" fill="none" stroke="#221F1C" stroke-width="3"/>
+  <rect x="204" y="34" width="162" height="100" fill="none" stroke="#221F1C" stroke-width="3"/>
+  <rect x="34" y="154" width="332" height="100" fill="none" stroke="#221F1C" stroke-width="3"/>
+  <line x1="184" y1="34" x2="184" y2="134" stroke="#221F1C" stroke-width="3"/>
+  <line x1="184" y1="154" x2="184" y2="254" stroke="#221F1C" stroke-width="1.5" stroke-dasharray="4 3" opacity=".4"/>
+  <text x="60" y="90" font-family="Work Sans" font-size="11" fill="#6B6155" letter-spacing=".5">BEDROOM</text>
+  <text x="234" y="90" font-family="Work Sans" font-size="11" fill="#6B6155" letter-spacing=".5">KITCHEN</text>
+  <text x="150" y="210" font-family="Work Sans" font-size="11" fill="#6B6155" letter-spacing=".5">LIVING ROOM</text>
+`;
+
+function rightSummary({file='—', scale='Not calibrated', ai='Not yet', wall='—', slab='—', conc='—', open='—', elems='0', total='LKR 0'}={}){
+  rightPanel.innerHTML = `
+    <div class="eyebrow">Live summary</div>
+    <div class="sum-block">
+      <h4>Drawing</h4>
+      <div class="sum-row"><span class="k">File</span><span class="v">${file}</span></div>
+      <div class="sum-row"><span class="k">Scale</span><span class="v">${scale}</span></div>
+      <div class="sum-row"><span class="k">AI run</span><span class="v">${ai}</span></div>
+    </div>
+    <div class="sum-block">
+      <h4>Quantities</h4>
+      <div class="sum-row"><span class="k">Wall face</span><span class="v">${wall}</span></div>
+      <div class="sum-row"><span class="k">Floor / slab</span><span class="v">${slab}</span></div>
+      <div class="sum-row"><span class="k">Concrete vol</span><span class="v">${conc}</span></div>
+      <div class="sum-row"><span class="k">Openings</span><span class="v">${open}</span></div>
+      <div class="sum-row"><span class="k">Elements on</span><span class="v">${elems}</span></div>
+    </div>
+    <div class="sum-block">
+      <h4>Estimate</h4>
+      <div class="sum-row"><span class="k">Grand total</span><span class="v hl">${total}</span></div>
+    </div>
+  `;
+}
+
+/* ---------- Scene 1: Upload ---------- */
+function sceneUpload(){
+  app.dataset.scene = 'upload';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 1 of 6</div>
+    <div class="p-title">Upload floor plan</div>
+    <div class="p-hint">Start with a legible architectural plan. MeasureCraft accepts PDF, PNG, and JPG files and preserves the drawing as the source of truth for every downstream quantity.</div>
+    <div class="panel-note"><strong>Best input</strong>Use a high-contrast plan with visible room boundaries, dimensions, and a consistent orientation.</div>`;
+  tbScale.textContent = 'Scale: not calibrated'; tbMeta.textContent = '0 elements';
+  rightSummary({});
+  viewerArea.innerHTML += `
+    <div class="dropzone" id="dz">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+      <strong>Drop plan here or click to browse</strong>
+      <p>PDF · PNG · JPG · max 25MB</p>
+      <div class="file-chip" id="fc">✓ floor_plan.pdf attached</div>
+    </div>`;
+  setCaption("Step 1 — Add the source drawing so every later quantity can be traced back to the plan");
+  const dz = document.getElementById('dz');
+  const startPt = centerOf(app, 40, 40);      // top-left corner of the app, "outside" the drop zone
+  const dropPt  = centerOf(dz);                // dead-center of the drop zone
+  dragFile.classList.remove('show','drop');
+  dragFile.style.left = startPt.x+'px'; dragFile.style.top = startPt.y+'px';
+  cursor.style.left = startPt.x+'px'; cursor.style.top = startPt.y+'px';
+  setTimeout(()=>{
+    dragFile.classList.add('show');
+    cursor.style.left = dropPt.x+'px'; cursor.style.top = dropPt.y+'px';
+    dragFile.style.left = dropPt.x+'px'; dragFile.style.top = dropPt.y+'px';
+    setTimeout(()=>{
+      dz.classList.add('drag');
+      dragFile.classList.add('drop');
+      beep(560, 0.06, 0.05);
+      setTimeout(()=>{
+        dz.classList.remove('drag');
+        document.getElementById('fc').classList.add('show');
+        beep(900, 0.08, 0.05);
+      }, 350/speedMult);
+    }, 950/speedMult);
+  }, 250/speedMult);
+}
+
+/* ---------- Scene 2: Calibrate ---------- */
+function sceneCalibrate(){
+  app.dataset.scene = 'calibrate';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 2 of 6</div>
+    <div class="p-title">Calibrate scale</div>
+    <div class="p-hint">Set the drawing scale by selecting two points on a known wall or dimension line. Enter the real-world distance so pixel measurements can be converted into metres.</div>
+    <div class="panel-note"><strong>Why it matters</strong>Calibration is the control that makes every detected length and area measurable rather than merely visual.</div>`;
+  tbScale.textContent = 'Scale: not calibrated'; tbMeta.textContent = '0 elements';
+  rightSummary({file:'floor_plan.pdf'});
+  viewerArea.innerHTML += `
+    <div class="calibrate-banner" id="banner">Click the start point of a known length</div>
+    <div class="plan-wrap">
+      <svg viewBox="0 0 400 290">${panelSVGWalls}
+        <circle id="d1" class="ruler-dot" cx="34" cy="34" r="5" opacity="0"/>
+        <circle id="d2" class="ruler-dot" cx="184" cy="34" r="5" opacity="0"/>
+        <line id="rl" class="ruler-line" x1="34" y1="34" x2="34" y2="34"/>
+      </svg>
+      <div class="len-popover" id="lp" style="top:6%; left:34%;">Length = <b>4.00 m</b></div>
+    </div>`;
+  setCaption("Step 2 — Calibrate once, then let the workspace convert pixels into real-world dimensions");
+  const svgEl = viewerArea.querySelector('.plan-wrap svg');
+  const p1 = svgPointToApp(svgEl, 34, 34);
+  const p2 = svgPointToApp(svgEl, 184, 34);
+  document.getElementById('banner').classList.add('show');
+  moveCursor(p1.x, p1.y, ()=>{
+    document.getElementById('d1').setAttribute('opacity',1);
+    document.getElementById('banner').textContent = 'Now click the end point';
+    moveCursor(p2.x, p2.y, ()=>{
+      document.getElementById('d2').setAttribute('opacity',1);
+      document.getElementById('rl').setAttribute('x2','184');
+      document.getElementById('rl').classList.add('show');
+      document.getElementById('banner').classList.remove('show');
+      setTimeout(()=>{
+        document.getElementById('lp').classList.add('show');
+        tbScale.textContent = 'Scale: 1px = 0.032m';
+        rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓'});
+      }, 400);
+    }, 800);
+  }, 700);
+}
+
+/* ---------- Scene 3: AI analysis ---------- */
+function sceneAI(){
+  app.dataset.scene = 'ai';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 3 of 6</div>
+    <div class="p-title">AI analysis</div>
+    <div class="p-hint">The analysis pass interprets the calibrated geometry and proposes measurable elements such as walls, slabs, doors, windows, and columns.</div>
+    <div class="p-hint" style="margin-top:10px;"><span id="aiStatus" style="font-weight:600;color:var(--brass-h)">Analyzing drawing…</span></div>
+    <div class="panel-note"><strong>Human in the loop</strong>AI proposes geometry; the review step remains the approval gate before quantities are priced.</div>`;
+  tbScale.textContent = 'Scale: 1px = 0.032m'; tbMeta.textContent = '0 elements';
+  rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Running…'});
+  viewerArea.innerHTML += `
+    <div class="plan-wrap">
+      <svg viewBox="0 0 400 290">${panelSVGWalls}</svg>
+      <div class="det-box" id="b1" style="top:11%;left:8.5%;width:37.5%;height:35%;"><div class="tag">Wall · 6.2m</div></div>
+      <div class="det-box" id="b2" style="top:11%;left:51%;width:40.5%;height:35%;"><div class="tag">Wall · 5.8m</div></div>
+      <div class="det-box" id="b3" style="top:53%;left:8.5%;width:83%;height:35%;"><div class="tag">Slab · 33.2m²</div></div>
+      <div class="det-box door" id="b4" style="top:14%;left:44.5%;width:3.5%;height:29%;"><div class="tag">Door</div></div>
+    </div>`;
+  document.getElementById('scanLine').classList.add('run');
+  /* No zoom-pulse scale — keeps drawing size stable during AI analysis */
+  setCaption("Step 3 — Let AI propose <b>measurable building elements</b> while the drawing stays visible");
+  setTimeout(()=>{
+    ['b1','b2','b3','b4'].forEach((id,i)=> setTimeout(()=>{ document.getElementById(id).classList.add('show'); beep(760+i*40,0.04,0.035); }, i*260/speedMult));
+    setTimeout(()=>{
+      document.getElementById('aiStatus').innerHTML = '<span style="color:var(--success)">Complete — 14 elements found ✓</span>';
+      tbMeta.textContent = '14 elements';
+      rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓'});
+      beep(1000,0.1,0.05);
+    }, 1500/speedMult);
+  }, 300/speedMult);
+}
+
+/* ---------- Scene 4: Review ---------- */
+function sceneReview(){
+  app.dataset.scene = 'review';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 4 of 6</div>
+    <div class="p-title">Review elements</div>
+    <div class="p-hint">Validate the proposed elements before they enter the takeoff. Each item can be accepted, corrected, retyped, resized, or removed when the drawing requires a human judgement.</div>
+    <div class="panel-note"><strong>Quality check</strong>Reviewing detections protects the estimate from omitted openings, duplicate geometry, and incorrect element types.</div>`;
+  tbScale.textContent = 'Scale: 1px = 0.032m'; tbMeta.textContent = '14 elements';
+  rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓', elems:'0 / 14'});
+  const rows = [
+    ['Wall — Exterior North','6.2m'],['Wall — Exterior East','5.8m'],
+    ['Slab — Ground floor','33.2m²'],['Door — D1','0.9m'],['Column — C1','0.23×0.23m'],
+  ];
+  viewerArea.innerHTML += `<div class="elem-list" id="elemList">${rows.map((r,i)=>`
+    <div class="elem-row" id="er${i}">
+      <span><span class="nm">${r[0]}</span><span class="dim">${r[1]}</span></span>
+      <span class="check" id="ck${i}">✓</span>
+    </div>`).join('')}</div>`;
+  setCaption("Step 4 — Approve the geometry before it becomes a priced quantity");
+  rows.forEach((r,i)=>{
+    setTimeout(()=>{
+      document.getElementById('er'+i).classList.add('show');
+      moveCursorToEl(document.getElementById('ck'+i), ()=>{
+        document.getElementById('ck'+i).classList.add('on');
+        rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓', elems:(i+1)+' / 14'});
+      }, 260);
+    }, i*520 + 300);
+  });
+}
+
+/* ---------- Scene 5: Rates ---------- */
+function sceneRates(){
+  app.dataset.scene = 'rates';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 5 of 6</div>
+    <div class="p-title">Quantities & rates</div>
+    <div class="p-hint">Apply project-specific unit rates to the approved quantities. Rates are kept separate from measured geometry so the same takeoff can be repriced without redrawing.</div>
+    <div class="panel-note"><strong>Pricing logic</strong>Quantity × unit rate produces each line value; the estimate rolls up to a single transparent grand total.</div>`;
+  tbScale.textContent = 'Scale: 1px = 0.032m'; tbMeta.textContent = '14 elements';
+  rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓', elems:'14 / 14',
+    wall:'142.0 m²', slab:'96.4 m²', conc:'18.2 m³', open:'9 nr', total:'LKR 0'});
+  viewerArea.innerHTML += `
+    <div class="rate-table">
+      <div class="rate-row"><span class="nm">Wall face (m²)</span><span class="val">142.0 × <input class="rate-input" id="ri1" value="2,450"></span></div>
+      <div class="rate-row"><span class="nm">Floor / slab (m²)</span><span class="val">96.4 × <input class="rate-input" id="ri2" value="3,100"></span></div>
+      <div class="rate-row"><span class="nm">Concrete vol (m³)</span><span class="val">18.2 × <input class="rate-input" id="ri3" value="42,000"></span></div>
+      <div class="rate-row"><span class="nm">Openings (nr)</span><span class="val">9 × <input class="rate-input" id="ri4" value="18,500"></span></div>
+      <div class="total-strip" id="tb"><span class="lbl">Grand total</span><span class="amt">LKR 1,577,640</span></div>
+    </div>`;
+  setCaption("Step 5 — Keep measurement and pricing separate, then reprice without redrawing");
+  document.querySelectorAll('.rate-input').forEach(input=>input.addEventListener('input', ()=>{
+    const rates = [...document.querySelectorAll('.rate-input')].map(x=>parseFloat(x.value.replace(/,/g,''))||0);
+    const total = Math.round(142*rates[0] + 96.4*rates[1] + 18.2*rates[2] + 9*rates[3]);
+    document.querySelector('#tb .amt').textContent = 'LKR ' + total.toLocaleString('en-US');
+    const totalRow = document.querySelector('.sum-row .v.hl');
+    if(totalRow) totalRow.textContent = 'LKR ' + total.toLocaleString('en-US');
+  }));
+  moveCursorToEl(document.getElementById('ri3'), ()=>{
+    document.getElementById('ri3').classList.add('focus');
+    beep(650, 0.04, 0.03);
+    setTimeout(()=>{
+      document.getElementById('tb').classList.add('show');
+      const amtEl = document.querySelector('#tb .amt');
+      countUp(amtEl, 0, 1577640, 900/speedMult, 'LKR ');
+      rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓', elems:'14 / 14',
+        wall:'142.0 m²', slab:'96.4 m²', conc:'18.2 m³', open:'9 nr'});
+      setTimeout(()=>{
+        const v = document.querySelectorAll('.sum-row .v.hl')[0];
+        if(v) countUp(v, 0, 1577640, 900/speedMult, 'LKR ');
+      }, 50);
+    }, 500/speedMult);
+  }, 700);
+}
+
+/* ---------- Scene 6: Export ---------- */
+function sceneExport(){
+  app.dataset.scene = 'export';
+  clear();
+  leftPanel.innerHTML = `
+    <div class="eyebrow">Step 6 of 6</div>
+    <div class="p-title">Report & export</div>
+    <div class="p-hint">Export a structured Bill of Quantities with quantities, rates, totals, and the element list. The result is ready for client review, contractor pricing, or internal cost checks.</div>
+    <div class="panel-note"><strong>Handoff</strong>Keep the exported BOQ with the calibrated source drawing so the estimate remains auditable.</div>`;
+  tbScale.textContent = 'Scale: 1px = 0.032m'; tbMeta.textContent = '14 elements';
+  rightSummary({file:'floor_plan.pdf', scale:'Calibrated ✓', ai:'Complete ✓', elems:'14 / 14',
+    wall:'142.0 m²', slab:'96.4 m²', conc:'18.2 m³', open:'9 nr', total:'LKR 1,577,640'});
+  viewerArea.innerHTML += `
+    <div class="export-card" id="ec">
+      <div class="xicon">XL</div>
+      <div class="fn">BOQ_Untitled_Project.xlsx</div>
+      <div class="fn2">Quantities · Rates · Grand total · Element list</div>
+      <button class="dl-btn" id="db">⬇ Download Excel BOQ</button>
+    </div>`;
+  setCaption("Step 6 — Export a structured <b>Excel BOQ</b> for review, pricing, and handoff");
+  document.getElementById('ec').classList.add('show');
+  setTimeout(()=>{
+    moveCursorToEl(document.getElementById('db'), ()=>{
+      document.getElementById('db').classList.add('show');
+      beep(1100, 0.09, 0.05);
+    }, 500);
+  }, 300/speedMult);
+}
+
+const scenes = [sceneUpload, sceneCalibrate, sceneAI, sceneReview, sceneRates, sceneExport];
+const SCENE_MS = [3400, 4600, 3600, 3800, 3600, 3000];
+let idx = 0, paused = false, timer = null, raf = null;
+
+function playScene(i){
+  setStepStates(i);
+  scenes[i]();
+  animateProgress(SCENE_MS[i]/speedMult);
+}
+function animateProgress(duration){
+  const start = performance.now();
+  cancelAnimationFrame(raf);
+  function tick(t){
+    if(paused){ raf = requestAnimationFrame(tick); return; }
+    const elapsed = t-start;
+    progressfill.style.width = Math.min(100,(elapsed/duration)*100)+'%';
+    if(elapsed < duration) raf = requestAnimationFrame(tick);
+  }
+  raf = requestAnimationFrame(tick);
+}
+function scheduleNext(resetOnly){
+  clearTimeout(timer);
+  if(resetOnly){
+    // speed changed mid-scene: just re-time remaining loop from now
+    timer = setTimeout(()=>{
+      if(!paused){ idx = (idx+1)%scenes.length; playScene(idx); }
+      scheduleNext();
+    }, SCENE_MS[idx]/speedMult);
+    return;
+  }
+  timer = setTimeout(()=>{
+    if(!paused){ idx = (idx+1)%scenes.length; playScene(idx); }
+    scheduleNext();
+  }, SCENE_MS[idx]/speedMult);
+}
+function startLoop(){ clearTimeout(timer); playScene(idx); scheduleNext(); }
+
+document.getElementById('replayBtn').addEventListener('click', ()=>{
+  idx = 0; paused = false; app.removeAttribute('data-theme');
+  document.getElementById('pauseBtn').textContent = '⏸ Pause'; startLoop();
+});
+document.getElementById('pauseBtn').addEventListener('click', (e)=>{
+  paused = !paused; e.target.textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+
+document.querySelectorAll('.controls button, .dotsnav button, .hbtn').forEach(btn=>{
+  btn.addEventListener('focus', ()=>btn.style.outline='3px solid var(--brass-soft)');
+  btn.addEventListener('blur', ()=>btn.style.outline='');
+});
+
+/* keyboard shortcuts */
+document.addEventListener('keydown', (e)=>{
+  if(e.code === 'Space'){
+    e.preventDefault();
+    paused = !paused;
+    document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+  } else if(e.code === 'ArrowRight'){
+    idx = (idx+1)%scenes.length; paused = true;
+    document.getElementById('pauseBtn').textContent = '▶ Resume';
+    clearTimeout(timer); playScene(idx);
+  } else if(e.code === 'ArrowLeft'){
+    idx = (idx-1+scenes.length)%scenes.length; paused = true;
+    document.getElementById('pauseBtn').textContent = '▶ Resume';
+    clearTimeout(timer); playScene(idx);
+  } else if(e.key === 'm' || e.key === 'M'){
+    muted = !muted; document.getElementById('muteBtn').textContent = muted ? '🔇' : '🔊';
+  }
+});
+
+startLoop();
+</script>
+</body>
+</html>
