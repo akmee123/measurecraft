@@ -3613,7 +3613,8 @@ kbd {
             try {
                 const currentRows = computeQuantities();
                 const ids = MCResearch.getResearchIds ? MCResearch.getResearchIds() : {};
-                const rows = currentRows.map(function (row) {
+                const cf = calibrationFactor;
+                const materialRows = currentRows.map(function (row) {
                     const el = row.elementId != null ? elements.find(function (item) { return item.id === row.elementId; }) : null;
                     const qty = Number(row.qty);
                     if (!Number.isFinite(qty)) return null;
@@ -3634,6 +3635,35 @@ kbd {
                         notes: context + ' · ' + sourceNote
                     };
                 }).filter(Boolean);
+                // Element-level baseline rows, one per wall/beam/slab/column/door/window.
+                // These use the SAME definition as computeAiBaselineQty() (m³ for
+                // wall/beam/slab/column, 1 Nr per door/window), matched by measurementType
+                // ('wall','door','window','column','beam','slab') so the research
+                // dashboard's "AI Detection Baseline" Quantity Error column — which keys
+                // off those exact type names — actually has AI-vs-current data to compare,
+                // instead of only ever seeing derived material rows (Brickwork, Tiles,
+                // Paint…) whose type names never match and so were always skipped.
+                const elementBaselineRows = elements.filter(function (el) {
+                    return el && !el.hidden && ['wall', 'beam', 'slab', 'column', 'door', 'window'].indexOf(el.type) >= 0;
+                }).map(function (el) {
+                    const live = computeAiBaselineQty(el, cf);
+                    if (!live) return null;
+                    const aiQty = Number.isFinite(Number(el.aiQty)) ? Number(el.aiQty) : null;
+                    const referenceQty = Number.isFinite(Number(el.referenceQty)) ? Number(el.referenceQty) : null;
+                    return {
+                        measurementType: el.type,
+                        measurementMethod: 'pro_element_baseline',
+                        aiMeasurement: aiQty,
+                        referenceMeasurement: referenceQty,
+                        userMeasurement: live.qty,
+                        finalAcceptedMeasurement: live.qty,
+                        unit: live.unit,
+                        userCorrection: !!(el.source === 'AI_EDITED' || el.reviewStatus === 'QS_REVIEWED'),
+                        elementLabel: el.label || el.type,
+                        notes: 'Element baseline · ' + (ids.projectId || 'project') + ' · ' + (ids.drawingId || 'drawing')
+                    };
+                }).filter(Boolean);
+                const rows = materialRows.concat(elementBaselineRows);
                 if (rows.length) {
                     await MCResearch.logMeasurements(rows, {
                         mode: 'pro',
