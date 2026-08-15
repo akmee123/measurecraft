@@ -1071,6 +1071,7 @@
       contingencyPct: 0.15,
       defaults: {
         wallHeight: 3.0,
+        wallThickness: 0.225, // standard wall thk (m) — do not derive from pixels
         slabThickness: 0.15,
         columnHeight: 3.0,
         beamWidth: 0.23,
@@ -1894,12 +1895,17 @@
           }
 
           const label = (el.label && String(el.label).trim()) || (type.charAt(0).toUpperCase() + type.slice(1));
+          // Standard thickness in metres — never derive from pixel box width
+          let thickness = null;
+          if (type === 'wall') thickness = state.defaults.wallThickness != null ? state.defaults.wallThickness : 0.225;
+          else if (type === 'beam') thickness = state.defaults.beamWidth != null ? state.defaults.beamWidth : 0.23;
           return {
             id: 'el-' + (nextIdBase + i),
             type: type,
             label: label,
             x, y, w, h,
             height: el.height != null && !isNaN(Number(el.height)) ? Number(el.height) : null,
+            thickness: thickness,
             confidence: el.confidence != null && isFinite(Number(el.confidence)) ? Math.max(0, Math.min(1, Number(el.confidence) > 1 ? Number(el.confidence) / 100 : Number(el.confidence))) : null,
             source: 'AI',
             ai: true,
@@ -2181,10 +2187,17 @@
       state.elements.filter(e => e.accepted).forEach(el => {
         const isLine = !!(el.isLine && el.p1 && el.p2);
         const lenPx = isLine ? elementLinePx(el) : Math.max(Number(el.w) || 0, Number(el.h) || 0);
-        const fallbackThickness = Math.min(Number(el.w) || 0, Number(el.h) || 0);
-        const thkPx = isLine ? (Number(el.thicknessDraw) > 0 ? Number(el.thicknessDraw) : fallbackThickness) : fallbackThickness;
         const lenM = pxToM(lenPx);
-        const thkM = pxToM(thkPx);
+        // Wall thickness is always a standard metre value (default 0.225 m).
+        // Never convert pixel box width → metres (that produced values like 0.2378 m).
+        let thkM = state.defaults.wallThickness != null ? state.defaults.wallThickness : 0.225;
+        if (el.type === 'wall' || el.type === 'beam') {
+          if (typeof el.thickness === 'number' && el.thickness >= 0.08 && el.thickness <= 0.55) {
+            thkM = Math.round(el.thickness * 1000) / 1000;
+          } else if (el.type === 'beam') {
+            thkM = state.defaults.beamWidth != null ? state.defaults.beamWidth : 0.23;
+          }
+        }
         const areaM2 = Math.pow(state.metersPerPixel || 0, 2) * elementAreaPx(el);
         const height = el.height != null && Number(el.height) > 0 ? Number(el.height) : state.defaults.wallHeight;
         if (el.type === 'wall') {
