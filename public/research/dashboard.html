@@ -244,18 +244,31 @@
     }
     function qs() {
       const p = new URLSearchParams();
-      if ($('fPart').value.trim()) p.set('participantId', $('fPart').value.trim());
-      if ($('fMode').value) p.set('mode', $('fMode').value);
-      if ($('fDwg').value.trim()) p.set('drawingId', $('fDwg').value.trim());
-      if ($('fType').value.trim()) p.set('measurementType', $('fType').value.trim());
-      if ($('fCorr').value) p.set('userCorrection', $('fCorr').value);
+      if ($('fPart') && $('fPart').value.trim()) p.set('participantId', $('fPart').value.trim());
+      if ($('fMode') && $('fMode').value) p.set('mode', $('fMode').value);
+      if ($('fDwg') && $('fDwg').value.trim()) p.set('drawingId', $('fDwg').value.trim());
+      if ($('fType') && $('fType').value.trim()) p.set('measurementType', $('fType').value.trim());
+      if ($('fCorr') && $('fCorr').value) p.set('userCorrection', $('fCorr').value);
       p.set('limit', '1000');
       return p.toString();
+    }
+    /** Escape text for safe use inside HTML (prevents XSS from notes / IDs / file names). */
+    function esc(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
     function fmt(n) {
       if (n == null || n === '') return '—';
       if (typeof n === 'number') return Number.isInteger(n) ? String(n) : n.toFixed(3);
-      return String(n);
+      const num = Number(n);
+      if (Number.isFinite(num) && String(n).trim() !== '') {
+        return Number.isInteger(num) ? String(num) : num.toFixed(3);
+      }
+      return esc(n);
     }
     function fmtPct(n) {
       if (n == null || n === '') return '—';
@@ -264,7 +277,21 @@
     }
     function safeText(v, fallback) {
       const s = String(v == null ? '' : v).trim();
-      return s || (fallback || '—');
+      return esc(s || (fallback || '—'));
+    }
+    function fmtBytes(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v < 0) return '—';
+      if (v < 1024) return v + ' B';
+      if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
+      return (v / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    async function parseJsonResponse(r) {
+      try {
+        return await r.json();
+      } catch (_) {
+        return {};
+      }
     }
     async function loadSummary() {
       const r = await fetch('/api/research/summary', { headers: headers() });
@@ -285,7 +312,7 @@
     }
     async function loadProjects() {
       const r = await fetch('/api/research/projects?limit=500', { headers: headers() });
-      const data = await r.json();
+      const data = await parseJsonResponse(r);
       if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
       const tb = $('tbodyProjects');
       if (!tb) return;
@@ -297,15 +324,15 @@
           ? '<span class="badge pro">Pro</span>'
           : '<span class="badge simple">Simple</span>';
         tr.innerHTML = `
-          <td class="mono">${p.projectId || ''}</td>
-          <td class="mono">${p.drawingId || ''}</td>
-          <td>${p.participantId || ''}</td>
+          <td class="mono">${esc(p.projectId || '')}</td>
+          <td class="mono">${esc(p.drawingId || '')}</td>
+          <td>${esc(p.participantId || '')}</td>
           <td>${modeBadge}</td>
-          <td>${(p.projectName || '').slice(0, 40)}</td>
-          <td>${(p.fileName || '').slice(0, 40)}</td>
-          <td class="mono">${p.revision || 'ORIGINAL'}</td>
-          <td class="mono">${p.parentProjectId || '—'}</td>
-          <td class="mono">${(p.uploadedAt || '').slice(0, 19)}</td>`;
+          <td>${esc((p.projectName || '').slice(0, 40))}</td>
+          <td>${esc((p.fileName || '').slice(0, 40))}</td>
+          <td class="mono">${esc(p.revision || 'ORIGINAL')}</td>
+          <td class="mono">${esc(p.parentProjectId || '—')}</td>
+          <td class="mono">${esc((p.uploadedAt || '').slice(0, 19))}</td>`;
         tb.appendChild(tr);
       });
       if ($('projCount')) $('projCount').textContent = (tb.children.length) + ' active project(s)';
@@ -322,17 +349,18 @@
       tb.innerHTML = '';
       (data.records || []).forEach((row) => {
         const tr = document.createElement('tr');
-        const modeBadge = row.measurementMode === 'Pro'
+        const modeBadge = (String(row.measurementMode || '').toLowerCase() === 'pro')
           ? '<span class="badge pro">Pro</span>'
           : '<span class="badge simple">Simple</span>';
         const corr = row.userCorrection
           ? '<span class="badge yes">Yes</span>'
           : '<span class="badge no">No</span>';
+        const rid = String(row.recordId || '');
         tr.innerHTML = `
-          <td class="mono">${row.recordId || ''}</td>
-          <td>${row.participantId || ''}</td>
+          <td class="mono">${esc(rid)}</td>
+          <td>${esc(row.participantId || '')}</td>
           <td>${modeBadge}</td>
-          <td>${row.measurementType || ''}</td>
+          <td>${esc(row.measurementType || '')}</td>
           <td>${fmt(row.referenceMeasurement)}</td>
           <td>${fmt(row.aiMeasurement)}</td>
           <td>${fmt(row.userMeasurement)}</td>
@@ -342,9 +370,9 @@
           <td>${fmtPct(row.differencePct)}</td>
           <td>${corr}</td>
           <td>${fmt(row.measurementDurationSec)}</td>
-          <td class="mono">${row.projectId || '—'} / ${row.drawingId || '—'}</td>
+          <td class="mono">${esc(row.projectId || '—')} / ${esc(row.drawingId || '—')}</td>
           <td>${safeText(row.notes, 'No additional notes')}</td>
-          <td><button type="button" class="btn-del" data-id="${row.recordId || ''}">Delete</button></td>`;
+          <td><button type="button" class="btn-del" data-id="${esc(rid)}">Delete</button></td>`;
         tb.appendChild(tr);
       });
       tb.querySelectorAll('.btn-del').forEach((btn) => {
@@ -373,7 +401,7 @@
 
     async function loadDrawingsList() {
       const r = await fetch('/api/research/drawings', { headers: headers() });
-      const data = await r.json();
+      const data = await parseJsonResponse(r);
       if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
       const tb = $('tbodyDrawings');
       if (!tb) return;
@@ -389,13 +417,13 @@
           ? d.projectIds.join(', ')
           : (d.projectId || '—');
         tr.innerHTML = `
-          <td class="mono">${d.drawingId || ''}</td>
-          <td>${d.participantId || ''}</td>
-          <td>${modeStr}</td>
-          <td class="mono" style="font-size:11px;">${projStr}</td>
-          <td>${(d.fileName || '').slice(0, 40)}</td>
-          <td>${d.byteSize != null ? d.byteSize : '—'}</td>
-          <td class="mono">${(d.uploadedAt || '').slice(0, 19)}</td>
+          <td class="mono">${esc(d.drawingId || '')}</td>
+          <td>${esc(d.participantId || '')}</td>
+          <td>${esc(modeStr)}</td>
+          <td class="mono" style="font-size:11px;">${esc(projStr)}</td>
+          <td>${esc((d.fileName || '').slice(0, 40))}</td>
+          <td>${fmtBytes(d.byteSize)}</td>
+          <td class="mono">${esc((d.uploadedAt || '').slice(0, 19))}</td>
           <td>${hasOrig ? '<a href="' + hrefOrig + '" data-kind="orig" rel="noopener">Original</a>' : '—'}</td>
           <td>${hasMarked ? '<a href="' + hrefMarked + '" data-kind="marked" rel="noopener">Marked plan</a>' : '<span class="hint">Not exported yet</span>'}</td>`;
         tr.querySelectorAll('a').forEach((a) => {
@@ -430,19 +458,24 @@
     }
 
     async function loadAccuracy() {
-      const threshold = Math.max(0.1, Math.min(0.95, Number($('iouThreshold').value) || 0.5));
+      const iouEl = $('iouThreshold');
+      const threshold = Math.max(0.1, Math.min(0.95, Number(iouEl && iouEl.value) || 0.5));
       const r = await fetch('/api/research/accuracy-baseline?iouThreshold=' + encodeURIComponent(threshold), { headers: headers() });
-      const data = await r.json().catch(() => ({}));
+      const data = await parseJsonResponse(r);
       if (!r.ok || !data.success) throw new Error(data.error || ('Accuracy baseline failed (HTTP ' + r.status + ')'));
       const accuracy = data.accuracy || {};
-      const tb = $('tbodyAccuracy'); tb.innerHTML = '';
+      const tb = $('tbodyAccuracy');
+      if (!tb) return;
+      tb.innerHTML = '';
       (accuracy.byType || []).forEach((s) => {
         const tr = document.createElement('tr');
         const pct = (v) => v == null ? '—' : v + '%';
-        tr.innerHTML = '<td><strong>' + s.type + '</strong></td><td>' + s.drawings + '</td><td>' + s.aiMarked + '</td><td>' + s.confirmed + '</td><td>' + pct(s.precision) + '</td><td>' + pct(s.recall) + '</td><td>' + pct(s.quantityErrorPct) + '</td>';
+        tr.innerHTML = '<td><strong>' + esc(s.type) + '</strong></td><td>' + esc(s.drawings) + '</td><td>' + esc(s.aiMarked) + '</td><td>' + esc(s.confirmed) + '</td><td>' + pct(s.precision) + '</td><td>' + pct(s.recall) + '</td><td>' + pct(s.quantityErrorPct) + '</td>';
         tb.appendChild(tr);
       });
-      $('accuracyMeta').textContent = (accuracy.annotationDrawings || 0) + ' drawing annotation set(s) included · IoU threshold ' + accuracy.iouThreshold + '. ' + (accuracy.note || '');
+      if ($('accuracyMeta')) {
+        $('accuracyMeta').textContent = (accuracy.annotationDrawings || 0) + ' drawing annotation set(s) included · IoU threshold ' + (accuracy.iouThreshold != null ? accuracy.iouThreshold : threshold) + '. ' + (accuracy.note || '');
+      }
     }
 
     async function downloadTrainingExport() {
@@ -509,8 +542,8 @@
       }
     }
     function exportUrl(format) {
-      const p = qs() + (qs() ? '&' : '') + 'format=' + format;
-      return '/api/research/export?' + p;
+      const q = qs();
+      return '/api/research/export?' + q + (q ? '&' : '') + 'format=' + encodeURIComponent(format);
     }
     async function downloadExport(format) {
       try {
@@ -553,11 +586,20 @@
     // Restore token from session for convenience (not localStorage — less persistent)
     try {
       const t = sessionStorage.getItem('mc-research-token');
-      if (t) $('token').value = t;
+      if (t && $('token')) $('token').value = t;
     } catch (_) {}
-    $('token').addEventListener('change', () => {
-      try { sessionStorage.setItem('mc-research-token', token()); } catch (_) {}
-    });
+    if ($('token')) {
+      $('token').addEventListener('change', () => {
+        try { sessionStorage.setItem('mc-research-token', token()); } catch (_) {}
+      });
+      // Press Enter in token field to load data
+      $('token').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          loadAll();
+        }
+      });
+    }
   </script>
 </body>
 </html>
