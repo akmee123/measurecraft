@@ -75,6 +75,7 @@
         <button type="button" id="btnLoad">Load data</button>
         <button type="button" class="secondary" id="btnExportCsv">Export CSV</button>
         <button type="button" class="secondary" id="btnExportJson">Export JSON</button>
+        <button type="button" id="btnClearAll" style="background:#b91c1c;color:#fff;border:none;">Clear all data</button>
       </div>
       <p class="hint" style="margin:10px 0 0;">
         Set <code>RESEARCH_ADMIN_TOKEN</code> in the server environment. Pass it here as <code>X-Research-Token</code>.
@@ -583,6 +584,32 @@
     if (btnAe) btnAe.addEventListener('click', () => downloadAnnotationExport().catch((e) => {
       $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
     }));
+    const btnClear = $('btnClearAll');
+    if (btnClear) {
+      btnClear.addEventListener('click', async () => {
+        if (!confirm('DELETE ALL research data (measurements, projects, sessions, drawings)? This cannot be undone.')) return;
+        if (!confirm('Final confirmation: wipe the entire research database?')) return;
+        try {
+          const r = await fetch('/api/research/clear-all', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
+            body: JSON.stringify({ confirm: 'DELETE_ALL_RESEARCH_DATA' }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || data.success === false) {
+            throw new Error(data.error || ('HTTP ' + r.status));
+          }
+          if ($('authMsg')) {
+            $('authMsg').innerHTML = '<div class="ok">All research data cleared.</div>';
+          }
+          await loadAll();
+        } catch (e) {
+          if ($('authMsg')) {
+            $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+          }
+        }
+      });
+    }
     // Restore token from session for convenience (not localStorage — less persistent)
     try {
       const t = sessionStorage.getItem('mc-research-token');
