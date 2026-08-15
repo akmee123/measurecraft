@@ -1171,24 +1171,74 @@ function detectionAccuracy(filters = {}) {
   return { generatedAt: nowIso(), iouThreshold: threshold, annotationDrawings: rows.length, byType: Object.values(byType), note: 'Precision/recall use one-to-one bounding-box matching. Quantity error uses absolute final-versus-reference or final-versus-AI measurement error.' };
 }
 
+function _median(nums) {
+  if (!nums || !nums.length) return null;
+  const a = nums.slice().sort((x, y) => x - y);
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
+function _mean(nums) {
+  if (!nums || !nums.length) return null;
+  return nums.reduce((s, n) => s + n, 0) / nums.length;
+}
+
+function _round2(n) {
+  if (n == null || !Number.isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Research-grade summary.
+ * Primary accuracy uses ONLY rows with a real researcher reference (not AI fallback).
+ * Reports median (robust to outliers) so unit-mismatch rows cannot produce 3000% means.
+ */
 function summaryStats() {
-  // enrichMeasurementRecord fills in difference/differencePct for any older/partial
-  // rows the same way listMeasurements() does, so this stays consistent with what
-  // the dashboard's own Measurement Records table shows for the same rows.
   const measurements = readJsonl(FILES.measurements).filter((m) => !m.superseded).map(enrichMeasurementRecord);
   const projects = readJsonl(FILES.projects).filter((p) => !p.superseded);
   const sessions = readJsonl(FILES.sessions);
-  const participants = new Set(measurements.map((m) => m.participantId));
+  const participants = new Set(measurements.map((m) => m.participantId).filter(Boolean));
   const corrected = measurements.filter((m) => m.userCorrection).length;
-  // Mean % error: use reference where the researcher has supplied it, otherwise fall
-  // back to the AI proposal as the baseline — same reference-first/AI-fallback policy
-  // used everywhere else (differencePct is already computed that way per record).
-  const withBaseline = measurements.filter((m) => m.differencePct != null);
-  let meanAbsPct = null;
-  if (withBaseline.length) {
-    const sum = withBaseline.reduce((s, m) => s + Math.abs(Number(m.differencePct) || 0), 0);
-    meanAbsPct = Math.round((sum / withBaseline.length) * 100) / 100;
-  }
+
+  const num = (v) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const vsRefAbs = [];
+  const vsAiAbs = [];
+  const allAbs = [];
+
+  measurements.forEach((m) => {
+    const ref = num(m.referenceMeasurement);
+    const ai = num(m.aiMeasurement);
+    const finalV = num(m.finalAcceptedMeasurement != null ? m.finalAcceptedMeasurement : m.userMeasurement);
+    let pct = num(m.differencePct);
+    if (pct == null && finalV != null) {
+      const baseline = ref != null ? ref : ai;
+      if (baseline != null && Math.abs(baseline) > 1e-9) {
+        pct = (Math.abs(finalV - baseline) / Math.abs(baseline)) * 100;
+      }
+    }
+    if (pct == null || !Number.isFinite(pct)) return;
+    const absPct = Math.abs(pct);
+    allAbs.push(absPct);
+    if (ref != null) vsRefAbs.push(absPct);
+    else if (ai != null) vsAiAbs.push(absPct);
+  });
+
+  const meanAll = _round2(_mean(allAbs));
+  const medianAll = _round2(_median(allAbs));
+  const meanVsRef = _round2(_mean(vsRefAbs));
+  const medianVsRef = _round2(_median(vsRefAbs));
+  const meanVsAi = _round2(_mean(vsAiAbs));
+  const medianVsAi = _round2(_median(vsAiAbs));
+
+  // Primary card: median vs real reference when available, else median vs AI
+  const primaryMedian = medianVsRef != null ? medianVsRef : medianVsAi;
+  const primaryMean = meanVsRef != null ? meanVsRef : meanVsAi;
+
   return {
     totalMeasurements: measurements.length,
     totalProjects: projects.length,
@@ -1196,7 +1246,18 @@ function summaryStats() {
     uniqueParticipants: participants.size,
     correctedCount: corrected,
     correctionRate: measurements.length ? Math.round((corrected / measurements.length) * 1000) / 10 : 0,
-    meanAbsPctErrorVsReference: meanAbsPct,
+    // Compatibility field (dashboard used this name) — now robust median
+    meanAbsPctErrorVsReference: primaryMedian,
+    medianAbsPctErrorVsReference: medianVsRef,
+    meanAbsPctErrorVsReferenceOnly: meanVsRef,
+    medianAbsPctErrorVsAi: medianVsAi,
+    meanAbsPctErrorVsAi: meanVsAi,
+    medianAbsPctErrorAll: medianAll,
+    meanAbsPctErrorAll: meanAll,
+    primaryMeanAbsPct: primaryMean,
+    rowsWithReference: vsRefAbs.length,
+    rowsWithAiBaselineOnly: vsAiAbs.length,
+    rowsWithError: allAbs.length,
     simpleCount: measurements.filter((m) => m.measurementMode === 'Simple').length,
     proCount: measurements.filter((m) => m.measurementMode === 'Pro').length,
   };
