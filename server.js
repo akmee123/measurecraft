@@ -902,6 +902,28 @@ app.post('/api/research/records/delete', requireResearchAdmin, (req, res) => {
 });
 
 /**
+ * Wipe ALL research data (admin only). Irreversible.
+ * Body: { "confirm": "DELETE_ALL_RESEARCH_DATA", "keepDrawings"?: true }
+ */
+app.post('/api/research/clear-all', requireResearchAdmin, (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirm !== 'DELETE_ALL_RESEARCH_DATA') {
+      return res.status(400).json({
+        success: false,
+        error: 'Send { "confirm": "DELETE_ALL_RESEARCH_DATA" } to proceed.',
+      });
+    }
+    const result = research.clearAllResearchData({
+      keepDrawings: !!body.keepDrawings,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * Export human correction samples for offline AI training / evaluation.
  * MeasureCraft does not fine-tune Gemini automatically; this JSON is for your own training pipeline.
  */
