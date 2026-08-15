@@ -250,6 +250,95 @@ function deleteMeasurementRecords(recordIds) {
 }
 
 /**
+ * Wipe ALL research data (measurements, projects, sessions, events,
+ * annotations, drawings, counters, email bindings).
+ * Requires RESEARCH_ADMIN_TOKEN on the API route — irreversible.
+ */
+function clearAllResearchData(opts = {}) {
+  ensureDirs();
+  const keepDrawings = !!(opts && opts.keepDrawings);
+  const cleared = {
+    measurements: false,
+    projects: false,
+    sessions: false,
+    elementEvents: false,
+    emailBindings: false,
+    counters: false,
+    annotations: 0,
+    drawings: 0,
+  };
+
+  // Empty JSONL / JSON files (also mirrored to remote storage via persistWrite)
+  try {
+    persistWrite(FILES.measurements, '');
+    cleared.measurements = true;
+  } catch (_) {}
+  try {
+    persistWrite(FILES.projects, '');
+    cleared.projects = true;
+  } catch (_) {}
+  try {
+    persistWrite(FILES.sessions, '');
+    cleared.sessions = true;
+  } catch (_) {}
+  try {
+    persistWrite(FILES.elementEvents, '');
+    cleared.elementEvents = true;
+  } catch (_) {}
+  try {
+    persistWrite(FILES.emailBindings, JSON.stringify({}, null, 2), 'utf8');
+    cleared.emailBindings = true;
+  } catch (_) {}
+  try {
+    persistWrite(FILES.counter, JSON.stringify({
+      project: 0,
+      drawing: 0,
+      record: 0,
+      session: 0,
+    }, null, 2), 'utf8');
+    cleared.counters = true;
+  } catch (_) {}
+
+  // Annotation JSON files under data/research/annotations/
+  try {
+    if (fs.existsSync(ANNOTATIONS_DIR)) {
+      for (const name of fs.readdirSync(ANNOTATIONS_DIR)) {
+        const p = path.join(ANNOTATIONS_DIR, name);
+        try {
+          if (fs.statSync(p).isFile()) {
+            fs.unlinkSync(p);
+            cleared.annotations += 1;
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  // Drawing files (original + marked) under data/drawings/
+  if (!keepDrawings) {
+    try {
+      if (fs.existsSync(DRAWINGS_DIR)) {
+        for (const name of fs.readdirSync(DRAWINGS_DIR)) {
+          const p = path.join(DRAWINGS_DIR, name);
+          try {
+            const st = fs.statSync(p);
+            if (st.isFile()) {
+              fs.unlinkSync(p);
+              cleared.drawings += 1;
+            } else if (st.isDirectory()) {
+              fs.rmSync(p, { recursive: true, force: true });
+              cleared.drawings += 1;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  return { success: true, cleared };
+}
+
+/**
  * Real-time element lifecycle event (accept / reject / edit / add / delete).
  * Logged as the QS works — does not wait for export.
  */
@@ -1259,6 +1348,7 @@ module.exports = {
   getEmailForParticipant,
   assertParticipantAvailable,
   deleteMeasurementRecords,
+  clearAllResearchData,
   logElementEvent,
   logElementEventBatch,
   listElementEvents,
