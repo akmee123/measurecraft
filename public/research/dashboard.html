@@ -94,8 +94,15 @@
         <div class="stat"><div class="v" id="sSimple">—</div><div class="l">Simple mode</div></div>
         <div class="stat"><div class="v" id="sPro">—</div><div class="l">Pro mode</div></div>
         <div class="stat"><div class="v" id="sCorr">—</div><div class="l">User corrections %</div></div>
-        <div class="stat"><div class="v" id="sErr">—</div><div class="l">Mean |% err| vs ref</div></div>
+        <div class="stat"><div class="v" id="sErr">—</div><div class="l">Median |% err| (primary)</div></div>
+        <div class="stat"><div class="v" id="sErrMean">—</div><div class="l">Mean |% err| vs ref</div></div>
+        <div class="stat"><div class="v" id="sRefN">—</div><div class="l">Rows with reference</div></div>
+        <div class="stat"><div class="v" id="sAiN">—</div><div class="l">Rows AI-baseline only</div></div>
       </div>
+      <p class="hint" id="summaryHint" style="margin-top:12px;">
+        Primary error is <strong>median</strong> absolute % error (robust to outliers).
+        Reference rows use researcher ground truth; AI-baseline rows compare final vs AI only.
+      </p>
     </div>
 
     <div class="card">
@@ -302,13 +309,35 @@
         throw new Error(data.error || ('Summary failed (HTTP ' + r.status + '). Check RESEARCH_ADMIN_TOKEN matches the value in Render Environment.'));
       }
       const s = data.summary || {};
+      const pct = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) + '%' : '—');
       if ($('sMeas')) $('sMeas').textContent = s.totalMeasurements != null ? s.totalMeasurements : 0;
       if ($('sProj')) $('sProj').textContent = s.totalProjects != null ? s.totalProjects : 0;
       if ($('sPart')) $('sPart').textContent = s.uniqueParticipants != null ? s.uniqueParticipants : 0;
       if ($('sSimple')) $('sSimple').textContent = s.simpleCount != null ? s.simpleCount : 0;
       if ($('sPro')) $('sPro').textContent = s.proCount != null ? s.proCount : 0;
       if ($('sCorr')) $('sCorr').textContent = (s.correctionRate != null ? s.correctionRate : 0) + '%';
-      if ($('sErr')) $('sErr').textContent = s.meanAbsPctErrorVsReference != null ? s.meanAbsPctErrorVsReference + '%' : '—';
+      // Primary = median (robust). Prefer reference-only median when available.
+      const primary = s.medianAbsPctErrorVsReference != null
+        ? s.medianAbsPctErrorVsReference
+        : (s.meanAbsPctErrorVsReference != null ? s.meanAbsPctErrorVsReference : s.medianAbsPctErrorVsAi);
+      if ($('sErr')) $('sErr').textContent = pct(primary);
+      if ($('sErrMean')) {
+        const meanRef = s.meanAbsPctErrorVsReferenceOnly != null ? s.meanAbsPctErrorVsReferenceOnly : s.primaryMeanAbsPct;
+        $('sErrMean').textContent = pct(meanRef);
+      }
+      if ($('sRefN')) $('sRefN').textContent = s.rowsWithReference != null ? s.rowsWithReference : 0;
+      if ($('sAiN')) $('sAiN').textContent = s.rowsWithAiBaselineOnly != null ? s.rowsWithAiBaselineOnly : 0;
+      if ($('summaryHint')) {
+        const refN = s.rowsWithReference || 0;
+        const aiN = s.rowsWithAiBaselineOnly || 0;
+        $('summaryHint').innerHTML =
+          'Primary error is <strong>median</strong> |%| (robust to outliers). ' +
+          (refN
+            ? ('Using <strong>' + refN + '</strong> row(s) with researcher reference. ')
+            : 'No researcher reference rows yet — showing median vs AI baseline. ') +
+          (aiN ? (aiN + ' row(s) are AI-baseline only. ') : '') +
+          'Mean can still look extreme if units mismatch on a few rows.';
+      }
       return s;
     }
     async function loadProjects() {
