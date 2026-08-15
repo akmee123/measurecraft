@@ -7394,30 +7394,31 @@ kbd {
                                     return;
                                 }
                             }
-                            // Simple 4-corner rectangles (most manually-drawn slabs/columns/
-                            // cutouts) get the same corner/edge "zoom" resize handles as
-                            // AI-detected boxes, instead of single-vertex dragging that
-                            // distorts the shape. True irregular polygons (5+ points, or a
-                            // 4-point shape that isn't a plain rectangle) still use vertex
-                            // editing so custom shapes remain editable.
-                            const rectPoly = !el.isLine && el.vertices && isRectangleShape(el);
-                            // Polygon vertices (irregular shapes only)
-                            if (!rectPoly && el.vertices && el.vertices.length >= 3) {
+                            // Slab / column / cutout (and any non-line polygon): support BOTH
+                            // 1) vertex drag → free shape change
+                            // 2) bounding-box handles → scale size bigger / smaller
+                            // Previously only pure rectangles got box handles and irregular
+                            // polygons only got vertices, so manual slabs/columns could not
+                            // do both. AI boxes (no vertices) still use handles only.
+                            // Prefer vertex hit when the pointer is on a vertex so shape
+                            // editing stays precise; otherwise fall through to box handles.
+                            if (!el.isLine && el.vertices && el.vertices.length >= 3) {
                                 for (let vi = 0; vi < el.vertices.length; vi++) {
                                     const vx = el.x + el.vertices[vi].x;
                                     const vy = el.y + el.vertices[vi].y;
                                     if (Math.hypot(world.x - vx, world.y - vy) <= hs) {
                                         editingVertex = { elId: el.id, vertexIndex: vi };
                                         dragMode = 'reshape';
-                                    markElementEdited(el);
-                                    saveState();
+                                        markElementEdited(el);
+                                        saveState();
                                         return;
                                     }
                                 }
                             }
-                            // Box handles: rect elements (AI-detected, no vertices) AND
-                            // manually-drawn plain-rectangle polygons (rectPoly above).
-                            if (!el.isLine && (!el.vertices || rectPoly)) {
+                            // Box handles for any non-line element (AI box or any polygon).
+                            // Vertices (if any) are scaled with the new w/h so area can grow
+                            // or shrink without destroying the shape.
+                            if (!el.isLine) {
                                 const handles = [
                                     ['nw', el.x, el.y], ['n', el.x + el.w / 2, el.y], ['ne', el.x + el.w, el.y],
                                     ['w', el.x, el.y + el.h / 2], ['e', el.x + el.w, el.y + el.h / 2],
@@ -7426,10 +7427,16 @@ kbd {
                                 ];
                                 for (const [name, hx, hy] of handles) {
                                     if (Math.abs(world.x - hx) <= hs && Math.abs(world.y - hy) <= hs) {
-                                        editingVertex = { elId: el.id, handle: name, start: { x: el.x, y: el.y, w: el.w, h: el.h }, hasVertices: !!el.vertices };
+                                        editingVertex = {
+                                            elId: el.id,
+                                            handle: name,
+                                            start: { x: el.x, y: el.y, w: el.w, h: el.h },
+                                            hasVertices: !!(el.vertices && el.vertices.length >= 3),
+                                            startVertices: el.vertices ? el.vertices.map(v => ({ x: v.x, y: v.y })) : null
+                                        };
                                         dragMode = 'reshape';
-                                    markElementEdited(el);
-                                    saveState();
+                                        markElementEdited(el);
+                                        saveState();
                                         return;
                                     }
                                 }
@@ -7655,14 +7662,23 @@ kbd {
                             const s = editingVertex.start;
                             let nx = s.x, ny = s.y, nw = s.w, nh = s.h;
                             const h = editingVertex.handle;
-                            if (h.includes('e')) nw = Math.max(5, snapped.x - s.x);
-                            if (h.includes('w')) { nw = Math.max(5, s.x + s.w - snapped.x); nx = snapped.x; }
-                            if (h.includes('s')) nh = Math.max(5, snapped.y - s.y);
-                            if (h.includes('n')) { nh = Math.max(5, s.y + s.h - snapped.y); ny = snapped.y; }
+                            // Allow small columns/slabs (min ~1 drawing unit, was 5)
+                            const minSz = 1;
+                            if (h.includes('e')) nw = Math.max(minSz, snapped.x - s.x);
+                            if (h.includes('w')) { nw = Math.max(minSz, s.x + s.w - snapped.x); nx = snapped.x; }
+                            if (h.includes('s')) nh = Math.max(minSz, snapped.y - s.y);
+                            if (h.includes('n')) { nh = Math.max(minSz, s.y + s.h - snapped.y); ny = snapped.y; }
                             el.x = nx; el.y = ny; el.w = nw; el.h = nh;
-                            // Keep the rectangle's vertices spanning the new box so the
-                            // shape scales cleanly (no distortion) instead of going stale.
-                            if (editingVertex.hasVertices && el.vertices && el.vertices.length === 4) {
+                            // Scale existing vertices with the new box so both size AND
+                            // shape are preserved for manual polygons (slab/column).
+                            // AI boxes (no vertices) stay pure rectangles.
+                            if (editingVertex.hasVertices && editingVertex.startVertices && editingVertex.startVertices.length >= 3) {
+                                const ow = s.w || 1, oh = s.h || 1;
+                                el.vertices = editingVertex.startVertices.map(v => ({
+                                    x: (v.x / ow) * nw,
+                                    y: (v.y / oh) * nh
+                                }));
+                            } else if (editingVertex.hasVertices && el.vertices && el.vertices.length === 4) {
                                 el.vertices = [{ x: 0, y: 0 }, { x: nw, y: 0 }, { x: nw, y: nh }, { x: 0, y: nh }];
                             }
                         }
@@ -7693,14 +7709,13 @@ kbd {
                     if (moved) renderAll();
                 }
 
-                // Resize handle hover
+                // Resize / vertex handle hover (slab, column, any polygon: both size + shape)
                 if (selectedIds.length === 1 && (currentTool === 'select' || currentTool === 'move' || !currentTool)) {
                     const el = elements.find(ee => ee.id === selectedIds[0]);
                     if (el && !el.locked) {
                         const hs = 10 / viewport.scale;
                         let foundHandle = false;
-                        const rectPolyHover = !el.isLine && el.vertices && isRectangleShape(el);
-                        if (!rectPolyHover && el.vertices && el.vertices.length >= 3) {
+                        if (!el.isLine && el.vertices && el.vertices.length >= 3) {
                             for (let i = 0; i < el.vertices.length; i++) {
                                 const vx = el.x + el.vertices[i].x,
                                     vy = el.y + el.vertices[i].y;
@@ -7718,7 +7733,7 @@ kbd {
                                 canvas.style.cursor = 'pointer';
                             }
                         }
-                        if (!foundHandle && !el.isLine && (!el.vertices || rectPolyHover)) {
+                        if (!foundHandle && !el.isLine) {
                             const handles = [
                                 [el.x, el.y],
                                 [el.x + el.w / 2, el.y],
