@@ -2806,6 +2806,11 @@ kbd {
 
 
         // ----- STATE -----
+        // Standard construction defaults (metres). Do NOT derive wall thickness from
+        // pixel short-side / calibration — that produces values like 0.2378 m.
+        const DEFAULT_WALL_THICKNESS_M = 0.225;
+        const DEFAULT_BEAM_THICKNESS_M = 0.20;
+        const DEFAULT_SLAB_THICKNESS_M = 0.15;
         let elements = [];
         let selectedIds = [];
         let nextId = 1;
@@ -3105,23 +3110,23 @@ kbd {
                 cutout: '#ff3b30'
             };
             let zHeight = 0,
-                thickness = 0.15;
+                thickness = DEFAULT_WALL_THICKNESS_M;
             let sillHeight = null;   // opening: height of sill above FFL (m)
             let soffitHeight = null; // beam: underside elevation above FFL (m); null = auto
             switch (type) {
                 case 'wall':
                     zHeight = 3.0;
-                    thickness = 0.15;
+                    thickness = DEFAULT_WALL_THICKNESS_M;
                     break;
                 case 'column':
                     zHeight = 3.0;
                     break;
                 case 'slab':
-                    zHeight = 0.15;
+                    zHeight = DEFAULT_SLAB_THICKNESS_M;
                     break;
                 case 'beam':
                     zHeight = 0.30; // beam depth
-                    thickness = 0.20;
+                    thickness = DEFAULT_BEAM_THICKNESS_M;
                     soffitHeight = null; // auto: under typical storey height
                     break;
                 case 'door':
@@ -3136,7 +3141,7 @@ kbd {
                 case 'opening':
                 case 'cutout':
                     zHeight = 2.1;
-                    thickness = 0.15;
+                    thickness = DEFAULT_WALL_THICKNESS_M;
                     sillHeight = 0;
                     break;
                 default:
@@ -3698,7 +3703,7 @@ kbd {
             // Seed a stable visual thickness once (drawing units), independent of later CF changes
             const thkM = (typeof el.thickness === 'number' && el.thickness >= 0.05 && el.thickness <= 0.6)
                 ? el.thickness
-                : (el.type === 'beam' ? 0.20 : 0.15);
+                : (el.type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M);
             // Prefer a readable stroke on the plan; clamp so it never becomes a "bubble"
             let td = toDrawing(thkM);
             if (!(td > 0) || !isFinite(td)) td = 4;
@@ -3835,10 +3840,10 @@ kbd {
                         if (asM >= 0.08 && asM <= 0.55) {
                             el.thickness = asM;
                         } else {
-                            el.thickness = el.type === 'beam' ? 0.20 : 0.15;
+                            el.thickness = el.type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
                         }
                     } else {
-                        el.thickness = el.type === 'beam' ? 0.20 : 0.15;
+                        el.thickness = el.type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
                     }
                     fixed++;
                 }
@@ -4142,8 +4147,8 @@ kbd {
 
         // Create a single angled wall/beam from two endpoints
         function createLineElement(type, p1, p2, thickness) {
-            const thkDraw = toDrawing(thickness || (type === 'beam' ? 0.20 : 0.15));
-            const thk = thickness || (type === 'beam' ? 0.20 : 0.15);
+            const thkDraw = toDrawing(thickness || (type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M));
+            const thk = thickness || (type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M);
             const dx = p2.x - p1.x,
                 dy = p2.y - p1.y;
             const len = Math.sqrt(dx * dx + dy * dy);
@@ -4492,7 +4497,7 @@ kbd {
                 if (!el || !(cf > 0)) return null;
                 if (el.type === 'wall' || el.type === 'beam') {
                     const lengthM = (el.isLine && el.length != null ? el.length : Math.max(el.w, el.h)) * cf;
-                    const vol = lengthM * (el.zHeight || (el.type === 'beam' ? 3.0 : 3.0)) * (el.thickness || 0.15);
+                    const vol = lengthM * (el.zHeight || (el.type === 'beam' ? 3.0 : 3.0)) * (el.thickness || DEFAULT_WALL_THICKNESS_M);
                     return { qty: Math.round(vol * 1000) / 1000, unit: 'm³' };
                 }
                 if (el.type === 'slab' || el.type === 'column') {
@@ -4703,10 +4708,9 @@ kbd {
                             p2 = { x: wx + ww / 2, y: wy + wh };
                         }
                         // Prefer measured short side in metres only if realistic; else typical defaults
-                        let thicknessM = toMeters(shortSide);
-                        if (!(thicknessM >= 0.08 && thicknessM <= 0.55)) {
-                            thicknessM = type === 'beam' ? 0.20 : 0.15;
-                        }
+                        // Always use standard defaults — pixel short-side → metres
+                        // produces non-standard floats like 0.2378 m.
+                        let thicknessM = type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
                         const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
                         if (len >= 1e-6) {
                             const thkDraw = toDrawing(thicknessM);
@@ -5194,13 +5198,19 @@ kbd {
                                 [el.x + el.w, el.y + el.h]
                             ];
                             handles.forEach(([hx, hy]) => {
+                                // Size handles (gold) — drag to make bigger/smaller
+                                const r = Math.max(6 / viewport.scale, 5);
                                 ctx.fillStyle = '#B8863B';
+                                ctx.strokeStyle = '#fff';
+                                ctx.lineWidth = 1.5 / viewport.scale;
                                 ctx.shadowBlur = 0;
                                 ctx.beginPath();
-                                ctx.arc(hx, hy, 4 / viewport.scale, 0, 2 * Math.PI);
+                                ctx.arc(hx, hy, r, 0, 2 * Math.PI);
                                 ctx.fill();
+                                ctx.stroke();
                             });
                             pts.forEach((p) => {
+                                // Shape vertices (green) — Shift+drag corner, or drag free vertex
                                 ctx.fillStyle = '#34c759';
                                 ctx.strokeStyle = '#fff';
                                 ctx.lineWidth = 1.5 / viewport.scale;
@@ -5331,11 +5341,16 @@ kbd {
                             [x + w, y + h, 'se']
                         ];
                         handles.forEach(([hx, hy]) => {
+                            // Size handles (gold) — larger + white ring so they are easy to grab
+                            const r = Math.max(6 / viewport.scale, 5);
                             ctx.fillStyle = '#B8863B';
+                            ctx.strokeStyle = '#fff';
+                            ctx.lineWidth = 1.5 / viewport.scale;
                             ctx.shadowBlur = 0;
                             ctx.beginPath();
-                            ctx.arc(hx, hy, 4, 0, 2 * Math.PI);
+                            ctx.arc(hx, hy, r, 0, 2 * Math.PI);
                             ctx.fill();
+                            ctx.stroke();
                         });
                     }
                 }
@@ -5724,7 +5739,7 @@ kbd {
                 if (el.type === 'wall') {
                     // Prefer explicit thickness (m). Fallback: thinner plan side in metres.
                     let thick = (typeof el.thickness === 'number' && el.thickness > 0)
-                        ? el.thickness : 0.15;
+                        ? el.thickness : DEFAULT_WALL_THICKNESS_M;
                     if (!el.isLine && (el.thickness == null)) {
                         const planThinM = Math.min(du(el.w || 10), du(el.h || 10));
                         // Only use drawn thickness if it looks like a wall (5cm–1.2m)
@@ -5784,7 +5799,7 @@ kbd {
                     let boxW = openWM,
                         boxD = openDM;
                     if (hostWall) {
-                        const thick = hostWall.thickness || 0.15;
+                        const thick = hostWall.thickness || DEFAULT_WALL_THICKNESS_M;
                         if (hostWall.w >= hostWall.h) { boxD = Math.max(thick + 0.08, 0.2);
                             boxW = openWM; } else { boxW = Math.max(thick + 0.08, 0.2);
                             boxD = openDM; }
@@ -6304,7 +6319,7 @@ kbd {
             if (el.isLine && el.p1 && el.p2) {
                 const angDeg = ((el.angle != null ? el.angle : Math.atan2(el.p2.y - el.p1.y, el.p2.x - el.p1.x)) * 180 / Math.PI);
                 html += `<div class="prop-group"><label>Angle</label><input value="${angDeg.toFixed(1)}°" disabled /></div>`;
-                html += `<div class="prop-group"><label>Thickness (m)</label><input type="number" value="${el.thickness || 0.15}" id="prop-thk" step="0.01" min="0.05" ${isConfirmed?'disabled':''} /></div>`;
+                html += `<div class="prop-group"><label>Thickness (m)</label><input type="number" value="${el.thickness || DEFAULT_WALL_THICKNESS_M}" id="prop-thk" step="0.01" min="0.05" ${isConfirmed?'disabled':''} /></div>`;
             } else if (!el.isLine) {
                 html += `<div class="prop-group"><div class="row">
                     <div><label>Width (units)</label><input type="number" value="${el.w.toFixed(1)}" id="prop-w" step="1" ${isConfirmed?'disabled':''} /></div>
@@ -6762,7 +6777,7 @@ kbd {
                     dedRemarks.push(`${o.label}(${openWidthM.toFixed(2)}×${openHeightM.toFixed(2)}=${deductM2.toFixed(2)}m²)`);
                 });
                 const netArea = Math.max(0, gross - deduction);
-                const vol = netArea * (w.thickness || 0.15);
+                const vol = netArea * (w.thickness || DEFAULT_WALL_THICKNESS_M);
                 totalBrickVol += vol;
                 const matName = materialDisplayName(w, 'Brickwork');
                 const q = wallQtyForMaterial(w.material || matName, netArea, vol);
@@ -7372,11 +7387,13 @@ kbd {
 
                 // ---- Element selection + vertex/endpoint editing ----
                 if (e.button === 0) {
-                    // First: try hit-test control points of selected element (reshape)
-                    if (selectedIds.length === 1 && (!currentTool || currentTool === 'select')) {
+                    // First: try hit-test control points of selected element (reshape / resize)
+                    // Allow when Select, Move, or no tool — so size handles work right after drawing.
+                    if (selectedIds.length === 1 && (!currentTool || currentTool === 'select' || currentTool === 'move')) {
                         const el = elements.find(ee => ee.id === selectedIds[0]);
                         if (el && !el.locked) {
-                            const hs = 10 / viewport.scale;
+                            // Larger hit target so handles are easy to grab when zoomed out
+                            const hs = Math.max(14 / viewport.scale, 10);
                             // Line endpoints
                             if (el.isLine && el.p1 && el.p2) {
                                 if (Math.hypot(world.x - el.p1.x, world.y - el.p1.y) <= hs) {
@@ -7394,14 +7411,33 @@ kbd {
                                     return;
                                 }
                             }
-                            // Slab / column / cutout (and any non-line polygon): support BOTH
-                            // 1) vertex drag → free shape change
-                            // 2) bounding-box handles → scale size bigger / smaller
-                            // Previously only pure rectangles got box handles and irregular
-                            // polygons only got vertices, so manual slabs/columns could not
-                            // do both. AI boxes (no vertices) still use handles only.
-                            // Prefer vertex hit when the pointer is on a vertex so shape
-                            // editing stays precise; otherwise fall through to box handles.
+                            // SIZE first (bounding-box handles) so slabs/columns can always
+                            // be made bigger/smaller by dragging corners or edge midpoints.
+                            // Hold Shift to prefer vertex (shape) edit instead.
+                            if (!el.isLine && !e.shiftKey) {
+                                const handles = [
+                                    ['nw', el.x, el.y], ['n', el.x + el.w / 2, el.y], ['ne', el.x + el.w, el.y],
+                                    ['w', el.x, el.y + el.h / 2], ['e', el.x + el.w, el.y + el.h / 2],
+                                    ['sw', el.x, el.y + el.h], ['s', el.x + el.w / 2, el.y + el.h],
+                                    ['se', el.x + el.w, el.y + el.h]
+                                ];
+                                for (const [name, hx, hy] of handles) {
+                                    if (Math.abs(world.x - hx) <= hs && Math.abs(world.y - hy) <= hs) {
+                                        editingVertex = {
+                                            elId: el.id,
+                                            handle: name,
+                                            start: { x: el.x, y: el.y, w: el.w, h: el.h },
+                                            hasVertices: !!(el.vertices && el.vertices.length >= 3),
+                                            startVertices: el.vertices ? el.vertices.map(v => ({ x: v.x, y: v.y })) : null
+                                        };
+                                        dragMode = 'reshape';
+                                        markElementEdited(el);
+                                        saveState();
+                                        return;
+                                    }
+                                }
+                            }
+                            // SHAPE: vertex drag (Shift+corner, or any free vertex)
                             if (!el.isLine && el.vertices && el.vertices.length >= 3) {
                                 for (let vi = 0; vi < el.vertices.length; vi++) {
                                     const vx = el.x + el.vertices[vi].x;
@@ -7415,10 +7451,8 @@ kbd {
                                     }
                                 }
                             }
-                            // Box handles for any non-line element (AI box or any polygon).
-                            // Vertices (if any) are scaled with the new w/h so area can grow
-                            // or shrink without destroying the shape.
-                            if (!el.isLine) {
+                            // Shift held but no vertex: still allow size handles
+                            if (!el.isLine && e.shiftKey) {
                                 const handles = [
                                     ['nw', el.x, el.y], ['n', el.x + el.w / 2, el.y], ['ne', el.x + el.w, el.y],
                                     ['w', el.x, el.y + el.h / 2], ['e', el.x + el.w, el.y + el.h / 2],
@@ -7713,7 +7747,7 @@ kbd {
                 if (selectedIds.length === 1 && (currentTool === 'select' || currentTool === 'move' || !currentTool)) {
                     const el = elements.find(ee => ee.id === selectedIds[0]);
                     if (el && !el.locked) {
-                        const hs = 10 / viewport.scale;
+                        const hs = Math.max(14 / viewport.scale, 10);
                         let foundHandle = false;
                         if (!el.isLine && el.vertices && el.vertices.length >= 3) {
                             for (let i = 0; i < el.vertices.length; i++) {
@@ -7978,7 +8012,7 @@ kbd {
                 alert('Need at least 2 points for a wall/beam.');
                 return;
             }
-            const thickness = currentTool === 'beam' ? 0.20 : 0.15;
+            const thickness = currentTool === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
             const type = currentTool;
             saveState();
             const newIds = [];
@@ -8050,7 +8084,7 @@ kbd {
             const sillHeightM = openLevels.sillHeightM;
             saveState();
             // Use the same visual thickness as the wall (clamped) so the deduction polygon is never too thin to create
-            const thk = (typeof parent.thickness === 'number' && parent.thickness > 0) ? parent.thickness : 0.15;
+            const thk = (typeof parent.thickness === 'number' && parent.thickness > 0) ? parent.thickness : DEFAULT_WALL_THICKNESS_M;
             let thkDraw = getLineThicknessDraw(parent);
             if (!(thkDraw > 0) || !isFinite(thkDraw)) thkDraw = Math.max(1.5, toDrawing(thk) || 1.5);
             const newIds = [];
@@ -8136,7 +8170,7 @@ kbd {
                                 t = Math.max(0, Math.min(1, t));
                                 const px = ax + t * abx,
                                     py = ay + t * aby;
-                                const thk = (e.isLine ? getLineThicknessDraw(e) : toDrawing(e.thickness || 0.15)) / 2 + 10 / viewport.scale;
+                                const thk = (e.isLine ? getLineThicknessDraw(e) : toDrawing(e.thickness || DEFAULT_WALL_THICKNESS_M)) / 2 + 10 / viewport.scale;
                                 if (Math.hypot(cx - px, cy - py) <= thk) {
                                     parent = e;
                                     break;
@@ -10916,11 +10950,12 @@ kbd {
                                 p2 = { x: wx + ww / 2, y: wy + wh };
                             }
                             let thicknessM = Number(item.thickness);
+                            // Accept only sensible standard range; never invent from pixels
                             if (!(thicknessM >= 0.08 && thicknessM <= 0.55)) {
-                                try { thicknessM = toMeters(shortSide); } catch (_) { thicknessM = NaN; }
-                            }
-                            if (!(thicknessM >= 0.08 && thicknessM <= 0.55)) {
-                                thicknessM = type === 'beam' ? 0.20 : 0.15;
+                                thicknessM = type === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
+                            } else {
+                                // Round to 1 mm to avoid long floats like 0.237785...
+                                thicknessM = Math.round(thicknessM * 1000) / 1000;
                             }
                             const len = Number(item.length) > 0 ? Number(item.length) : Math.hypot(p2.x - p1.x, p2.y - p1.y);
                             let thkDraw = Number(item.thicknessDraw);
