@@ -8617,17 +8617,9 @@ kbd {
             const safe = projName.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'Project';
             XLSX.writeFile(wb, 'BOQ_' + safe + '_' + dateStr + '.xlsx', { cellStyles: true, bookSST: true });
             console.log('📥 Styled BOQ Excel exported:', 'BOQ_' + safe + '_' + dateStr + '.xlsx');
-            // Research: log Pro Mode BOQ quantities (participant session)
-            try {
-                if (window.MCResearch && MCResearch.getParticipantId()) {
-                    const matRows = MCResearch.rowsFromMaterials(materials, { method: 'pro_boq_material' });
-                    const elRows = MCResearch.rowsFromElementQty(elementQty, { method: 'pro_boq_element' });
-                    try { MCResearch.ensureMode('pro'); } catch (_) {}
-                    MCResearch.logMeasurements(matRows.concat(elRows), {
-                        notes: 'Pro Mode BOQ export · ' + projName,
-                    });
-                }
-            } catch (_) {}
+            // Research: element-level AI vs final is already logged continuously via
+            // syncResearchQuantities() on render. Do not add aggregate elementQty rows
+            // here — they never carry aiQty and inflate measurement counts uselessly.
         }
 
         function getExportWorldBounds() {
