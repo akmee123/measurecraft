@@ -1899,7 +1899,7 @@
           let thickness = null;
           if (type === 'wall') thickness = state.defaults.wallThickness != null ? state.defaults.wallThickness : 0.225;
           else if (type === 'beam') thickness = state.defaults.beamWidth != null ? state.defaults.beamWidth : 0.23;
-          return {
+          const newEl = {
             id: 'el-' + (nextIdBase + i),
             type: type,
             label: label,
@@ -1911,8 +1911,14 @@
             ai: true,
             reviewStatus: 'AI_GENERATED',
             reviewedAt: null,
-            accepted: false
+            accepted: false,
+            // Frozen at detection time so later edits / accept don't rewrite the AI baseline
+            aiQty: null
           };
+          try {
+            newEl.aiQty = computeElementQty(newEl);
+          } catch (_) {}
+          return newEl;
         }).filter(Boolean);
 
         state.elements = keptElements.concat(newEls);
@@ -2179,6 +2185,41 @@
       if (Number.isFinite(length) && length > 0) return length;
       const w = Number(el && el.w), h = Number(el && el.h);
       return Number.isFinite(w) && Number.isFinite(h) ? Math.max(w, h) : 0;
+    }
+
+    /** Per-element quantity used for AI baseline (aiQty) and research logging. */
+    function computeElementQty(el) {
+      if (!el) return null;
+      const isLine = !!(el.isLine && el.p1 && el.p2);
+      const lenPx = isLine ? elementLinePx(el) : Math.max(Number(el.w) || 0, Number(el.h) || 0);
+      const lenM = pxToM(lenPx);
+      let thkM = state.defaults.wallThickness != null ? state.defaults.wallThickness : 0.225;
+      if (el.type === 'wall' || el.type === 'beam') {
+        if (typeof el.thickness === 'number' && el.thickness >= 0.08 && el.thickness <= 0.55) {
+          thkM = Math.round(el.thickness * 1000) / 1000;
+        } else if (el.type === 'beam') {
+          thkM = state.defaults.beamWidth != null ? state.defaults.beamWidth : 0.23;
+        }
+      }
+      const areaM2 = Math.pow(state.metersPerPixel || 0, 2) * elementAreaPx(el);
+      const height = el.height != null && Number(el.height) > 0 ? Number(el.height) : state.defaults.wallHeight;
+      if (el.type === 'wall') return Math.round(lenM * height * 100) / 100; // m² face
+      if (el.type === 'slab') return Math.round(areaM2 * (state.defaults.slabThickness || 0.15) * 1000) / 1000; // m³
+      if (el.type === 'column') {
+        const h = el.height != null && Number(el.height) > 0 ? Number(el.height) : state.defaults.columnHeight;
+        return Math.round(areaM2 * h * 1000) / 1000; // m³
+      }
+      if (el.type === 'beam') {
+        return Math.round(lenM * (state.defaults.beamWidth || 0.23) * (state.defaults.beamDepth || 0.45) * 1000) / 1000; // m³
+      }
+      if (el.type === 'door' || el.type === 'window' || el.type === 'opening') return 1;
+      return null;
+    }
+
+    function elementUnit(type) {
+      if (type === 'wall') return 'm²';
+      if (type === 'door' || type === 'window' || type === 'opening') return 'Nr';
+      return 'm³';
     }
 
     function computeQuantities() {
@@ -2578,8 +2619,26 @@
             });
           } catch (regErr) { console.warn('registerDrawing on export', regErr); }
 
+          // Materials rows (for BOQ completeness) + per-element rows with frozen aiQty
           const matRows = MCResearch.rowsFromMaterials(materials, { method: 'simple_boq_material' });
-          const elRows = MCResearch.rowsFromElementQty(elementQty, { method: 'simple_boq_element' });
+          const accepted = (state.elements || []).filter(function (e) { return e && e.accepted; });
+          const elRows = accepted.map(function (el) {
+            const finalQty = computeElementQty(el);
+            const aiQ = (el.aiQty != null && Number.isFinite(Number(el.aiQty))) ? Number(el.aiQty) : null;
+            return {
+              measurementType: String(el.type || 'element').toLowerCase(),
+              measurementMethod: 'simple_element',
+              userMeasurement: finalQty,
+              finalAcceptedMeasurement: finalQty,
+              aiMeasurement: aiQ,
+              unit: elementUnit(el.type),
+              userCorrection: !!(aiQ != null && finalQty != null && Math.abs(aiQ - finalQty) > 1e-6),
+              elementLabel: el.label || el.type || null,
+              confidence: el.confidence != null ? el.confidence : null,
+              reviewStatus: el.reviewStatus || null,
+              notes: '',
+            };
+          });
           MCResearch.logMeasurements(matRows.concat(elRows), {
             notes: 'Simple Mode BOQ export · ' + name +
               (function () {
