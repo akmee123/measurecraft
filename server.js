@@ -924,6 +924,38 @@ app.post('/api/research/clear-all', requireResearchAdmin, (req, res) => {
 });
 
 /**
+ * Researcher ground-truth quantities (admin only).
+ * GET  /api/research/reference-quantities[?drawingId=DWG-0001]
+ * POST /api/research/reference-quantities  body: { drawingId, measurementType, value, unit?, notes? }
+ *      (value null / empty string removes the entry)
+ */
+app.get('/api/research/reference-quantities', requireResearchAdmin, (req, res) => {
+  try {
+    const drawingId = req.query.drawingId || null;
+    const data = research.listReferenceQuantities(drawingId || undefined);
+    res.json({ success: true, referenceQuantities: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/research/reference-quantities', requireResearchAdmin, (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = research.setReferenceQuantity({
+      drawingId: body.drawingId,
+      measurementType: body.measurementType || body.elementType || body.type,
+      value: body.value,
+      unit: body.unit,
+      notes: body.notes,
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message || 'failed to set reference quantity' });
+  }
+});
+
+/**
  * Export human correction samples for offline AI training / evaluation.
  * MeasureCraft does not fine-tune Gemini automatically; this JSON is for your own training pipeline.
  */
