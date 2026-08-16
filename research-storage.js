@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 let dataRoot = null;
 let hydrated = false;
@@ -150,6 +150,43 @@ function mirrorFile(file) {
   return next;
 }
 
+// Deletes a single local file's S3 mirror (if S3 is enabled). Uses the same
+// path-safety guard and per-file queue as mirrorFile so deletes stay ordered
+// relative to any in-flight writes of the same key.
+function deleteFile(file) {
+  if (!enabled()) return Promise.resolve();
+  if (!dataRoot) return Promise.reject(new Error('S3 storage is not configured with a data root'));
+
+  const absolute = path.resolve(file);
+  const root = path.resolve(dataRoot);
+  if (!absolute.startsWith(root + path.sep)) {
+    console.warn('[research] Refusing to delete a file outside research data root:', file);
+    return Promise.resolve();
+  }
+  const relativePath = path.relative(root, absolute).split(path.sep).join('/');
+
+  const previous = fileQueues.get(absolute) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(async () => {
+      const cfg = config();
+      const client = getClient(cfg);
+      await client.send(new DeleteObjectCommand({
+        Bucket: cfg.bucket,
+        Key: keyFor(cfg.prefix, relativePath),
+      }));
+    })
+    .catch((err) => {
+      console.warn('[research] S3 delete failed for ' + file + ':', err.message);
+    })
+    .finally(() => {
+      if (fileQueues.get(absolute) === next) fileQueues.delete(absolute);
+    });
+
+  fileQueues.set(absolute, next);
+  return next;
+}
+
 function status() {
   return {
     enabled: enabled(),
@@ -159,4 +196,4 @@ function status() {
   };
 }
 
-module.exports = { configure, enabled, hydrateFromS3, mirrorFile, status };
+module.exports = { configure, enabled, hydrateFromS3, mirrorFile, deleteFile, status };
