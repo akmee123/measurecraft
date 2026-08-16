@@ -25,6 +25,8 @@ const FILES = {
   emailBindings: path.join(RESEARCH_DIR, 'email-bindings.json'),
   elementEvents: path.join(RESEARCH_DIR, 'element-events.jsonl'),
   counter: path.join(RESEARCH_DIR, 'counters.json'),
+  // Researcher-entered ground-truth quantities keyed by drawingId + measurementType
+  referenceQuantities: path.join(RESEARCH_DIR, 'reference-quantities.json'),
 };
 
 researchStorage.configure(DATA_ROOT);
@@ -40,6 +42,14 @@ function persistWrite(file, data, encoding) {
 function persistAppend(file, data, encoding) {
   fs.appendFileSync(file, data, encoding);
   researchStorage.mirrorFile(file);
+}
+
+function persistDelete(file) {
+  try {
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (_) {}
+  // Fire-and-forget S3 delete; failures are logged inside deleteFile.
+  researchStorage.deleteFile(file);
 }
 
 function ensureDataDirs() {
@@ -264,6 +274,7 @@ function clearAllResearchData(opts = {}) {
     elementEvents: false,
     emailBindings: false,
     counters: false,
+    referenceQuantities: false,
     annotations: 0,
     drawings: 0,
   };
@@ -298,6 +309,10 @@ function clearAllResearchData(opts = {}) {
     }, null, 2), 'utf8');
     cleared.counters = true;
   } catch (_) {}
+  try {
+    persistWrite(FILES.referenceQuantities, JSON.stringify({}, null, 2), 'utf8');
+    cleared.referenceQuantities = true;
+  } catch (_) {}
 
   // Annotation JSON files under data/research/annotations/
   try {
@@ -306,7 +321,7 @@ function clearAllResearchData(opts = {}) {
         const p = path.join(ANNOTATIONS_DIR, name);
         try {
           if (fs.statSync(p).isFile()) {
-            fs.unlinkSync(p);
+            persistDelete(p);
             cleared.annotations += 1;
           }
         } catch (_) {}
@@ -323,10 +338,15 @@ function clearAllResearchData(opts = {}) {
           try {
             const st = fs.statSync(p);
             if (st.isFile()) {
-              fs.unlinkSync(p);
+              persistDelete(p);
               cleared.drawings += 1;
             } else if (st.isDirectory()) {
-              fs.rmSync(p, { recursive: true, force: true });
+              // Recursively delete files inside (so each S3 key is removed),
+              // then remove the empty directory locally.
+              for (const child of fs.readdirSync(p)) {
+                persistDelete(path.join(p, child));
+              }
+              try { fs.rmSync(p, { recursive: true, force: true }); } catch (_) {}
               cleared.drawings += 1;
             }
           } catch (_) {}
@@ -949,7 +969,8 @@ function logMeasurement(payload) {
   const ai = num(payload.aiMeasurement);
   const user = num(payload.userMeasurement);
   const finalV = num(payload.finalAcceptedMeasurement != null ? payload.finalAcceptedMeasurement : payload.userMeasurement);
-  const reference = num(payload.referenceMeasurement);
+  // Prefer explicit payload value; otherwise fall back to researcher ground-truth table
+  const reference = resolveReferenceMeasurement(payload);
   const unit = String(payload.unit || '').slice(0, 24) || null;
 
   let difference = null;
@@ -1285,6 +1306,157 @@ function exportCsv(rows) {
   return lines.join('\n');
 }
 
+/**
+ * Researcher ground-truth quantities.
+ * Shape of reference-quantities.json:
+ * {
+ *   "DWG-0001": {
+ *     "column": { "value": 12.5, "unit": "m³", "notes": "...", "updatedAt": "..." },
+ *     "beam":   { "value": 8.2,  "unit": "m³", "notes": "",    "updatedAt": "..." }
+ *   }
+ * }
+ * Keys for measurementType are lower-cased for stable lookup.
+ */
+function loadReferenceQuantities() {
+  ensureDirs();
+  try {
+    if (!fs.existsSync(FILES.referenceQuantities)) return {};
+    const raw = JSON.parse(fs.readFileSync(FILES.referenceQuantities, 'utf8'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveReferenceQuantities(map) {
+  ensureDirs();
+  persistWrite(FILES.referenceQuantities, JSON.stringify(map || {}, null, 2), 'utf8');
+}
+
+function normalizeTypeKey(t) {
+  return String(t || '').trim().toLowerCase();
+}
+
+/**
+ * Set or clear a ground-truth quantity for a drawing + element type.
+ * value === null / undefined removes the entry.
+ */
+function setReferenceQuantity({ drawingId, measurementType, value, unit, notes }) {
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) throw new Error('drawingId is required and must look like DWG-0000');
+  const typeKey = normalizeTypeKey(measurementType);
+  if (!typeKey) throw new Error('measurementType is required');
+
+  const map = loadReferenceQuantities();
+  if (!map[id]) map[id] = {};
+
+  if (value == null || value === '') {
+    delete map[id][typeKey];
+    if (Object.keys(map[id]).length === 0) delete map[id];
+  } else {
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new Error('value must be a finite number');
+    map[id][typeKey] = {
+      value: n,
+      unit: unit != null ? String(unit).slice(0, 24) : null,
+      notes: notes != null ? String(notes).slice(0, 500) : '',
+      updatedAt: nowIso(),
+    };
+  }
+  saveReferenceQuantities(map);
+
+  // Backfill existing measurement rows that are missing a referenceMeasurement
+  // for this drawing + type, so dashboard stats update immediately.
+  backfillReferenceOnMeasurements(id, typeKey, value == null || value === '' ? null : Number(value));
+
+  return { drawingId: id, measurementType: typeKey, entry: (map[id] && map[id][typeKey]) || null };
+}
+
+function getReferenceQuantity(drawingId, measurementType) {
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) return null;
+  const map = loadReferenceQuantities();
+  const typeKey = normalizeTypeKey(measurementType);
+  const entry = map[id] && map[id][typeKey];
+  return entry || null;
+}
+
+function listReferenceQuantities(drawingId) {
+  const map = loadReferenceQuantities();
+  if (drawingId) {
+    const id = sanitizeDrawingId(drawingId);
+    if (!id) return {};
+    return map[id] || {};
+  }
+  return map;
+}
+
+/**
+ * Rewrite measurement rows for a drawing+type, filling referenceMeasurement
+ * where it was previously null. Does not overwrite an existing non-null
+ * reference that might have been set on the row itself.
+ */
+function backfillReferenceOnMeasurements(drawingId, typeKey, refValue) {
+  const id = sanitizeDrawingId(drawingId);
+  if (!id) return 0;
+  const rows = readJsonl(FILES.measurements);
+  let changed = 0;
+  const updated = rows.map((m) => {
+    if (m.superseded) return m;
+    if (String(m.drawingId) !== id) return m;
+    if (normalizeTypeKey(m.measurementType) !== typeKey) return m;
+    // Only fill when missing; never clobber a value already present on the row
+    if (m.referenceMeasurement != null && m.referenceMeasurement !== '') return m;
+    if (refValue == null) return m;
+    changed += 1;
+    const num = (v) => {
+      if (v == null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const finalV = num(m.finalAcceptedMeasurement != null ? m.finalAcceptedMeasurement : m.userMeasurement);
+    const ai = num(m.aiMeasurement);
+    const reference = num(refValue);
+    let difference = null;
+    let differencePct = null;
+    const baseline = reference != null ? reference : ai;
+    if (finalV != null && baseline != null) {
+      difference = Math.round((finalV - baseline) * 10000) / 10000;
+      if (Math.abs(baseline) > 1e-9) {
+        differencePct = Math.round((Math.abs(difference) / Math.abs(baseline)) * 10000) / 100;
+      }
+    }
+    return {
+      ...m,
+      referenceMeasurement: reference,
+      difference,
+      differencePct,
+    };
+  });
+  if (changed) rewriteJsonl(FILES.measurements, updated);
+  return changed;
+}
+
+/**
+ * When logging a new measurement, pull researcher ground truth if the payload
+ * did not already supply a referenceMeasurement.
+ */
+function resolveReferenceMeasurement(payload) {
+  const fromPayload = (() => {
+    if (payload == null) return null;
+    const v = payload.referenceMeasurement != null ? payload.referenceMeasurement : payload.referenceQty;
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  })();
+  if (fromPayload != null) return fromPayload;
+  const drawingId = payload && payload.drawingId;
+  const type = payload && (payload.measurementType || payload.elementType);
+  if (!drawingId || !type) return null;
+  const entry = getReferenceQuantity(drawingId, type);
+  return entry && entry.value != null ? entry.value : null;
+}
+
 function getDrawingPath(drawingId) {
   const id = sanitizeDrawingId(drawingId);
   if (!id) return null;
@@ -1418,6 +1590,10 @@ module.exports = {
   listReviewedAnnotations,
   buildAnnotationDataset,
   listStoredDrawings,
+  setReferenceQuantity,
+  getReferenceQuantity,
+  listReferenceQuantities,
+  loadReferenceQuantities,
   DATA_ROOT,
   DRAWINGS_DIR,
   RESEARCH_DIR,
