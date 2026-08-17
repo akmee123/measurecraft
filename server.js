@@ -901,6 +901,67 @@ app.post('/api/research/records/delete', requireResearchAdmin, (req, res) => {
   }
 });
 
+/** Update an existing measurement record (manual edit from dashboard). */
+app.post('/api/research/records/update', requireResearchAdmin, (req, res) => {
+  try {
+    const body = req.body || {};
+    const recordId = body.recordId || body.id;
+    if (!recordId) {
+      return res.status(400).json({ success: false, error: 'recordId is required' });
+    }
+    const record = research.updateMeasurement(recordId, body);
+    res.json({ success: true, record });
+  } catch (err) {
+    const status = /not found/i.test(err.message || '') ? 404 : 400;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Manual measurement entry from the research dashboard (Pro or Simple).
+ * Fully manual — does not require AI detection.
+ */
+app.post('/api/research/records/manual', requireResearchAdmin, (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.participantId) {
+      return res.status(400).json({ success: false, error: 'participantId is required' });
+    }
+    if (!body.measurementType && !body.elementType) {
+      return res.status(400).json({ success: false, error: 'measurementType is required' });
+    }
+    const userVal = body.userMeasurement != null ? body.userMeasurement : body.finalAcceptedMeasurement;
+    if (userVal == null || userVal === '') {
+      return res.status(400).json({ success: false, error: 'userMeasurement (or finalAcceptedMeasurement) is required' });
+    }
+    const modeRaw = body.measurementMode || body.mode || 'pro';
+    const isPro = String(modeRaw).toLowerCase() === 'pro';
+    const record = research.logMeasurement({
+      participantId: body.participantId,
+      projectId: body.projectId || null,
+      drawingId: body.drawingId || null,
+      measurementMode: isPro ? 'Pro' : 'Simple',
+      mode: isPro ? 'pro' : 'simple',
+      measurementType: body.measurementType || body.elementType,
+      measurementMethod: body.measurementMethod || 'manual_dashboard_entry',
+      referenceMeasurement: body.referenceMeasurement,
+      aiMeasurement: body.aiMeasurement != null ? body.aiMeasurement : null,
+      userMeasurement: userVal,
+      finalAcceptedMeasurement: body.finalAcceptedMeasurement != null ? body.finalAcceptedMeasurement : userVal,
+      unit: body.unit || '',
+      notes: body.notes || 'Manual entry from research dashboard',
+      elementLabel: body.elementLabel || body.measurementType || body.elementType,
+      userCorrection: body.userCorrection,
+      measurementDurationSec: body.measurementDurationSec,
+      _skipSupersede: true,
+    });
+    res.json({ success: true, record });
+  } catch (err) {
+    console.error('research manual record', err);
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 /**
  * Wipe ALL research data (admin only). Irreversible.
  * Body: { "confirm": "DELETE_ALL_RESEARCH_DATA", "keepDrawings"?: true }
