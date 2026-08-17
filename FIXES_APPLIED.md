@@ -99,3 +99,74 @@ Both HTML pages returned HTTP 200 from the local server, and all inline JavaScri
       - Prefer `mc-plan-transfer-elements` backup whenever it has more elements than the main session payload.
       - Prefer IndexedDB full payload when restoring from Simple if session lost elements.
       - Simple `buildTransferPayload` always includes every element (AI + manual), with line metadata and explicit `accepted: true` only when the user accepted.
+
+## Boundary thickness + CAD object snap (2026-08-17)
+
+12. **Scale-aware boundary / selection thickness**
+    - Problem: Element outlines and selection boxes used fixed world-space `lineWidth` (e.g. `2` or `3`) while the canvas is transformed by `viewport.scale`. Zooming in made boundaries extremely thick and obscured the PDF.
+    - Fix: Added `screenLineWidth(basePx)` and `screenPad(px)` helpers. Boundary and selection strokes now stay approximately constant on screen, and slightly thinner above ~200% zoom so fine detail remains readable.
+    - Applied to polygon/rect element strokes, selection boxes, wall/beam strokes, and hover highlights.
+
+13. **CAD-style object snap to element geometry**
+    - Added `findNearestElementSnap(world)` that finds the nearest wall/beam segment, polygon edge, or rectangle edge within a ~14px screen tolerance (uses actual geometry, not only bbox).
+    - On hover (Select and drawing tools): nearest element is highlighted (amber dashed outline); a crosshair marks the snap point.
+    - When drawing walls, beams, slabs, columns, cutouts, or measuring: click position snaps to the highlighted geometry. Hold **Alt** to bypass snap and place exactly.
+    - Extends the existing deduction-wall parent snap with a general-purpose mechanism for all takeoff elements (after AI Detect or manual draw).
+    - Note: Snap targets existing takeoff geometry, not raw PDF vector operators (the underlay is rasterized by PDF.js).
+
+## Overlapping elements + 3D window elevation (2026-08-17)
+
+14. **Overlapping elements in 2D**
+    - Hit-test now collects the full stack of elements under the cursor (`hitTestAllElements`).
+    - **Ctrl/Cmd+click** cycles through the stack so the correct wall/column/beam/opening can be selected when they overlap.
+    - Overlapping elements show a magenta dashed ring + stack badge (⧉).
+    - Hover shows a name/type label listing every element under the cursor; selected/cycled items are marked.
+    - Status bar reports `Overlap i/n: Label (Ctrl+click to cycle)` when cycling.
+
+15. **3D window / opening vertical position**
+    - Deduction/cutout path previously placed openings at `hM/2` from floor (sill ignored) → windows sat on the floor or looked wrong.
+    - Now uses `getOpeningSillM` / `getOpeningHeightM`:
+      - Sill defaults: window 0.9 m above FFL, door/opening 0 m (user can override).
+      - Opening height defaults: window 1.2 m, door 2.1 m.
+    - Box mesh mid-height = sill + openingHeight/2; polygon `yMode: bottom` sits on the sill.
+    - Labels and camera bounds account for sill + head level.
+    - High-level / ventilation windows preserve elevation when set in Properties (“Elevation above FFL”).
+
+## Wall measurement + column deduction (2026-08-17)
+
+16. **Net wall area with column & opening deductions**
+    - `collectWallDeductions(wall)` gathers:
+      - Openings/cutouts parented to the wall or overlapping it
+      - Columns that intersect the wall in plan (auto), unless `skipWallDeduction`
+    - Deduction = width along wall × min(opening/column height, wall height)
+    - Wall **geometry is unchanged**; deductions are associated regions only
+    - Live quantity table / Properties: Gross − Deduction = Net
+    - Columns keep their own volume quantity
+
+17. **2D workflow — Add Deduction**
+    - On a selected wall, Properties shows **Add Deduction** (polygon cutout) and **Deduction along wall** (line tool)
+    - Parent wall is locked via `pendingDeductionParentId` so the new region attaches to that wall
+    - List of deductions shows openings (editable height, removable) and columns (toggle “Deduct this column from wall”)
+    - Multiple deductions per wall supported (columns + doors/windows + drawn regions)
+
+## Keep measurement tool active after Enter (2026-08-17)
+
+18. **Enter finishes the current element only**
+    - `stayInDrawingTool()` keeps wall/beam/slab/column/cutout/deduction_wall active after Enter, Done, or double-click complete.
+    - Drawing buffers are cleared so the next click starts a new element of the same type.
+    - Toolbar highlight and crosshair remain on the active tool.
+    - Tool exits only on Esc (no in-progress points), selecting another tool, or Select/Pan.
+
+## Research Dashboard – Pro manual recording (2026-08-17)
+
+19. **Manual Pro/Simple measurement entry on dashboard**
+    - New card: Participant, Mode (Pro default), type, user value, unit, optional reference/AI, drawing/project IDs, notes.
+    - `POST /api/research/records/manual` — fully manual, no AI required.
+    - `POST /api/research/records/update` — edit existing row in place.
+    - Table **Edit** / **Delete** actions; form validates required fields with clear errors.
+    - Manual methods (`manual_dashboard_entry` / `manual`) skip supersede so multiple types can coexist.
+    - After save/update/delete: summary + records table refresh automatically.
+
+20. **Pro mode independence from AI**
+    - Dashboard manual entry never calls Gemini.
+    - Live Pro takeoff still logs quantities via `MCResearch.logMeasurements` when a Participant ID is set, with or without AI Detect.
