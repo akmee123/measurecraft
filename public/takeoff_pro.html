@@ -1959,6 +1959,8 @@ kbd {
             <button id="btnUndo" data-tooltip="Undo (Ctrl+Z)"><i class="fas fa-undo-alt"></i></button>
             <button id="btnRedo" data-tooltip="Redo (Ctrl+Y)"><i class="fas fa-redo-alt"></i></button>
             <button id="btnDelete" data-tooltip="Delete (Del)"><i class="fas fa-trash"></i></button>
+            <button id="btnRotateCCW" data-tooltip="Rotate selection 90° counter-clockwise (Shift+R)"><i class="fas fa-undo"></i></button>
+            <button id="btnRotateCW" data-tooltip="Rotate selection 90° clockwise (R)"><i class="fas fa-redo"></i></button>
         </div>
         <div class="group">
             <button id="btnComplete" data-tooltip="Complete (Enter)" style="background:var(--success);color:#fff;"><i class="fas fa-check"></i> Done</button>
@@ -2104,6 +2106,11 @@ kbd {
         <div class="item" data-action="edit"><i class="fas fa-edit"></i> Edit</div>
         <div class="item" data-action="duplicate"><i class="fas fa-copy"></i> Duplicate</div>
         <div class="item" data-action="delete"><i class="fas fa-trash"></i> Delete</div>
+        <div class="separator"></div>
+        <div class="item" data-action="rotateCW"><i class="fas fa-redo"></i> Rotate 90° CW</div>
+        <div class="item" data-action="rotateCCW"><i class="fas fa-undo"></i> Rotate 90° CCW</div>
+        <div class="item" data-action="rotate180"><i class="fas fa-sync"></i> Rotate 180°</div>
+        <div class="item" data-action="rotateCustom"><i class="fas fa-drafting-compass"></i> Rotate by angle…</div>
         <div class="separator"></div>
         <div class="item" data-action="lock"><i class="fas fa-lock"></i> Lock</div>
         <div class="item" data-action="hide"><i class="fas fa-eye-slash"></i> Hide</div>
@@ -3046,6 +3053,42 @@ kbd {
         }
 
 
+
+        /** Screen-stable rotate handle above element center (single selection). */
+        function getRotateHandleWorld(el) {
+            const c = getElementCenter(el);
+            const lift = 22 / Math.max(viewport.scale || 1, 0.001);
+            return { x: c.x, y: c.y - lift, cx: c.x, cy: c.y };
+        }
+
+        function drawRotateHandle(ctx, el) {
+            if (!el || el.locked) return;
+            const h = getRotateHandleWorld(el);
+            const r = 7 / Math.max(viewport.scale || 1, 0.001);
+            // stem
+            ctx.save();
+            ctx.strokeStyle = '#6366f1';
+            ctx.fillStyle = '#6366f1';
+            ctx.lineWidth = 1.5 / Math.max(viewport.scale || 1, 0.001);
+            ctx.beginPath();
+            ctx.moveTo(h.cx, h.cy);
+            ctx.lineTo(h.x, h.y);
+            ctx.stroke();
+            // knob
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1.2 / Math.max(viewport.scale || 1, 0.001);
+            ctx.stroke();
+            // small arc icon
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, r * 0.55, -0.8, Math.PI * 0.9);
+            ctx.strokeStyle = '#fff';
+            ctx.stroke();
+            ctx.restore();
+        }
+
         function formatSnapLabel(kind, el) {
             if (!kind || !el) return '';
             const type = (el.type || 'element');
@@ -3477,6 +3520,136 @@ kbd {
             }
             // vertices are relative to x,y — no change needed
         }
+
+        /** Center of element in world drawing units (for rotation pivot). */
+        function getElementCenter(el) {
+            if (!el) return { x: 0, y: 0 };
+            if (el.isLine && el.p1 && el.p2) {
+                return { x: (el.p1.x + el.p2.x) / 2, y: (el.p1.y + el.p2.y) / 2 };
+            }
+            if (el.vertices && el.vertices.length >= 2) {
+                let sx = 0, sy = 0;
+                el.vertices.forEach(function (v) { sx += el.x + v.x; sy += el.y + v.y; });
+                return { x: sx / el.vertices.length, y: sy / el.vertices.length };
+            }
+            return {
+                x: (el.x || 0) + (el.w || 0) / 2,
+                y: (el.y || 0) + (el.h || 0) / 2
+            };
+        }
+
+        function rotatePointAround(px, py, cx, cy, cosA, sinA) {
+            const dx = px - cx, dy = py - cy;
+            return { x: cx + dx * cosA - dy * sinA, y: cy + dx * sinA + dy * cosA };
+        }
+
+        /**
+         * Rotate one element by degrees (positive = CW in screen coords where Y grows down).
+         * Works for walls/beams (line), polygons (slab/column/cutout), and axis-aligned boxes.
+         */
+        function rotateElementBy(el, degrees, pivot) {
+            if (!el || el.locked) return;
+            const rad = (Number(degrees) || 0) * Math.PI / 180;
+            if (!isFinite(rad) || Math.abs(rad) < 1e-12) return;
+            const cosA = Math.cos(rad), sinA = Math.sin(rad);
+            const c = pivot || getElementCenter(el);
+
+            if (el.isLine && el.p1 && el.p2) {
+                el.p1 = rotatePointAround(el.p1.x, el.p1.y, c.x, c.y, cosA, sinA);
+                el.p2 = rotatePointAround(el.p2.x, el.p2.y, c.x, c.y, cosA, sinA);
+                el.angle = Math.atan2(el.p2.y - el.p1.y, el.p2.x - el.p1.x);
+                el.length = Math.hypot(el.p2.x - el.p1.x, el.p2.y - el.p1.y);
+                if (typeof syncLineBounds === 'function') syncLineBounds(el);
+                return;
+            }
+
+            if (el.vertices && el.vertices.length >= 2) {
+                const abs = el.vertices.map(function (v) {
+                    return rotatePointAround(el.x + v.x, el.y + v.y, c.x, c.y, cosA, sinA);
+                });
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                abs.forEach(function (p) {
+                    if (p.x < minX) minX = p.x;
+                    if (p.y < minY) minY = p.y;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.y > maxY) maxY = p.y;
+                });
+                el.x = minX;
+                el.y = minY;
+                el.w = Math.max(0.01, maxX - minX);
+                el.h = Math.max(0.01, maxY - minY);
+                el.vertices = abs.map(function (p) { return { x: p.x - el.x, y: p.y - el.y }; });
+                el.rotation = ((el.rotation || 0) + degrees) % 360;
+                return;
+            }
+
+            // Axis-aligned box → rotate corners into polygon so orientation is kept
+            const corners = [
+                { x: el.x, y: el.y },
+                { x: el.x + (el.w || 0), y: el.y },
+                { x: el.x + (el.w || 0), y: el.y + (el.h || 0) },
+                { x: el.x, y: el.y + (el.h || 0) }
+            ].map(function (p) { return rotatePointAround(p.x, p.y, c.x, c.y, cosA, sinA); });
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            corners.forEach(function (p) {
+                if (p.x < minX) minX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y > maxY) maxY = p.y;
+            });
+            el.x = minX;
+            el.y = minY;
+            el.w = Math.max(0.01, maxX - minX);
+            el.h = Math.max(0.01, maxY - minY);
+            el.vertices = corners.map(function (p) { return { x: p.x - el.x, y: p.y - el.y }; });
+            el.rotation = ((el.rotation || 0) + degrees) % 360;
+        }
+
+        function rotateSelected(degrees) {
+            if (isConfirmed || !selectedIds.length) return;
+            const deg = Number(degrees);
+            if (!isFinite(deg) || deg === 0) return;
+            saveState();
+            // Shared pivot = centroid of selection centers (multi-select rotates as a group)
+            let sx = 0, sy = 0, n = 0;
+            const list = [];
+            selectedIds.forEach(function (id) {
+                const el = elements.find(function (e) { return e.id === id; });
+                if (!el || el.locked || el.hidden) return;
+                list.push(el);
+                const c = getElementCenter(el);
+                sx += c.x; sy += c.y; n++;
+            });
+            if (!list.length) return;
+            const pivot = n ? { x: sx / n, y: sy / n } : null;
+            list.forEach(function (el) { rotateElementBy(el, deg, pivot); });
+            renderAll();
+            try {
+                if (window.MCResearch && typeof MCResearch.notifyElementChange === 'function') {
+                    list.forEach(function (el) {
+                        MCResearch.notifyElementChange('edit', el, { mode: 'pro', action: 'rotate' });
+                    });
+                }
+            } catch (_) {}
+        }
+
+        function promptRotateSelected() {
+            if (isConfirmed || !selectedIds.length) return;
+            const raw = window.prompt(
+                'Rotate selected element(s) by angle in degrees.\n\n' +
+                'Positive = clockwise, negative = counter-clockwise.\n' +
+                'Examples: 90, -45, 15',
+                '90'
+            );
+            if (raw === null) return;
+            const deg = parseFloat(raw);
+            if (!isFinite(deg) || deg === 0) {
+                try { showToast('Enter a non-zero number of degrees', 'error'); } catch (_) {}
+                return;
+            }
+            rotateSelected(deg);
+        }
+
 
         function deleteSelected() {
             if (isConfirmed || selectedIds.length === 0) return;
@@ -5525,6 +5698,7 @@ kbd {
                                 ctx.fill();
                                 ctx.stroke();
                             });
+                            if (selectedIds.length === 1 && !el.locked) drawRotateHandle(ctx, el);
                             pts.forEach((p) => {
                                 // Shape vertices (green) — Shift+drag corner, or drag free vertex
                                 ctx.fillStyle = '#34c759';
@@ -5615,6 +5789,9 @@ kbd {
                     ctx.font = `${8 / viewport.scale}px sans-serif`;
                     const lenM = toMeters(len);
                     ctx.fillText(`${lenM.toFixed(2)} m · z=${(el.zHeight || 0).toFixed(2)}m`, midX + 2, midY - thkDraw / 2 + 10 / viewport.scale);
+                    if (selectedIds.includes(el.id) && selectedIds.length === 1 && !el.locked) {
+                        drawRotateHandle(ctx, el);
+                    }
                     ctx.restore();
                     return;
                 }
@@ -5678,6 +5855,7 @@ kbd {
                             ctx.fill();
                             ctx.stroke();
                         });
+                        if (selectedIds.length === 1 && !el.locked) drawRotateHandle(ctx, el);
                     }
                 }
                 // CAD snap hover highlight for rect elements
@@ -8051,6 +8229,14 @@ kbd {
                     deleteSelected();
                     return;
                 }
+                // Rotate selection: R = 90° CW, Shift+R = 90° CCW
+                if (!isEditing && (e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    if (selectedIds && selectedIds.length) {
+                        e.preventDefault();
+                        rotateSelected(e.shiftKey ? -90 : 90);
+                        return;
+                    }
+                }
                 if (e.key === 'Escape' && !isEditing) {
                     if (polygonPoints.length > 0 || drawPreview || deductionLinePoints.length > 0) {
                         cancelDrawing();
@@ -8265,6 +8451,23 @@ kbd {
                     if (selectedIds.length === 1 && (!currentTool || currentTool === 'select' || currentTool === 'move')) {
                         const el = elements.find(ee => ee.id === selectedIds[0]);
                         if (el && !el.locked) {
+                            // Rotate handle (above center)
+                            const rh = getRotateHandleWorld(el);
+                            const hsRot = 16 / viewport.scale;
+                            if (Math.hypot(world.x - rh.x, world.y - rh.y) <= hsRot) {
+                                saveState();
+                                const c = getElementCenter(el);
+                                editingVertex = {
+                                    elId: el.id,
+                                    rotate: true,
+                                    pivot: { x: c.x, y: c.y },
+                                    startAngle: Math.atan2(world.y - c.y, world.x - c.x),
+                                    lastAngle: Math.atan2(world.y - c.y, world.x - c.x)
+                                };
+                                dragMode = 'reshape';
+                                canvas.style.cursor = 'grabbing';
+                                return;
+                            }
                             // Larger hit target so handles are easy to grab when zoomed out
                             const hs = 14 / viewport.scale;
                             // Line endpoints
@@ -8611,6 +8814,26 @@ kbd {
                 if (dragMode === 'reshape' && mouseDown && editingVertex) {
                     const el = elements.find(ee => ee.id === editingVertex.elId);
                     if (el && !el.locked) {
+                        if (editingVertex.rotate && editingVertex.pivot) {
+                            const ang = Math.atan2(world.y - editingVertex.pivot.y, world.x - editingVertex.pivot.x);
+                            let delta = ang - editingVertex.lastAngle;
+                            // normalize
+                            while (delta > Math.PI) delta -= Math.PI * 2;
+                            while (delta < -Math.PI) delta += Math.PI * 2;
+                            // Shift = snap to 15° increments from start
+                            if (e.shiftKey) {
+                                const fromStart = ang - editingVertex.startAngle;
+                                const step = 15 * Math.PI / 180;
+                                const snappedDelta = Math.round(fromStart / step) * step - (editingVertex.lastAngle - editingVertex.startAngle);
+                                delta = snappedDelta;
+                            }
+                            if (Math.abs(delta) > 1e-6) {
+                                rotateElementBy(el, delta * 180 / Math.PI, editingVertex.pivot);
+                                editingVertex.lastAngle = ang;
+                            }
+                            renderCanvas2D();
+                            return;
+                        }
                         const snapped = snapPoint(world, e);
                         if (editingVertex.endpoint === 'p1') {
                             el.p1 = { x: snapped.x, y: snapped.y };
@@ -9314,6 +9537,18 @@ kbd {
                             break;
                         case 'delete':
                             deleteSelected();
+                            break;
+                        case 'rotateCW':
+                            rotateSelected(90);
+                            break;
+                        case 'rotateCCW':
+                            rotateSelected(-90);
+                            break;
+                        case 'rotate180':
+                            rotateSelected(180);
+                            break;
+                        case 'rotateCustom':
+                            promptRotateSelected();
                             break;
                         case 'lock':
                             toggleLockSelected();
@@ -10855,6 +11090,16 @@ kbd {
                 } else {
                     try { if (typeof toast === 'function') toast('Select one or more elements to delete.', 'info'); else alert('Select one or more elements to delete.'); } catch (_) { alert('Select one or more elements to delete.'); }
                 }
+            });
+            const btnRotateCW = document.getElementById('btnRotateCW');
+            const btnRotateCCW = document.getElementById('btnRotateCCW');
+            if (btnRotateCW) btnRotateCW.addEventListener('click', function () {
+                if (!selectedIds.length) { try { showToast('Select element(s) to rotate', 'info'); } catch (_) {} return; }
+                rotateSelected(90);
+            });
+            if (btnRotateCCW) btnRotateCCW.addEventListener('click', function () {
+                if (!selectedIds.length) { try { showToast('Select element(s) to rotate', 'info'); } catch (_) {} return; }
+                rotateSelected(-90);
             });
             const btnConfirm = document.getElementById('btnConfirm');
             if (btnConfirm) btnConfirm.addEventListener('click', () => confirmTakeoff());
