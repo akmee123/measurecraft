@@ -947,8 +947,13 @@ function supersedePriorMeasurements({ participantId, drawingId, measurementMode,
  */
 function logMeasurement(payload) {
   ensureDirs();
+  // Manual dashboard rows must not wipe other types; live exports still supersede.
+  const method = String(payload.measurementMethod || '').toLowerCase();
+  const skipSupersede = !!payload._skipSupersede ||
+    method === 'manual_dashboard_entry' ||
+    method === 'manual';
   // Latest export wins for this participant + drawing + mode + type
-  if (!payload._skipSupersede) {
+  if (!skipSupersede) {
     supersedePriorMeasurements({
       participantId: payload.participantId,
       drawingId: payload.drawingId,
@@ -1074,6 +1079,94 @@ function logMeasurementBatch(items, common) {
     results.push(logMeasurement(payload));
   }
   return results;
+}
+
+/**
+ * Update an existing measurement record in place (edit from research dashboard).
+ * Does not supersede other rows. Recalculates difference / differencePct.
+ */
+function updateMeasurement(recordId, patch) {
+  ensureDirs();
+  const id = String(recordId || '').trim();
+  if (!id) throw new Error('recordId is required');
+  const rows = readJsonl(FILES.measurements);
+  const idx = rows.findIndex((r) => String(r.recordId) === id);
+  if (idx < 0) throw new Error('Record not found: ' + id);
+
+  const num = (v) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const prev = rows[idx];
+  const next = { ...prev };
+
+  if (patch.participantId != null) next.participantId = sanitizeParticipant(patch.participantId);
+  if (patch.projectId !== undefined) next.projectId = patch.projectId || null;
+  if (patch.drawingId !== undefined) next.drawingId = patch.drawingId || null;
+  if (patch.measurementMode != null || patch.mode != null) {
+    next.measurementMode =
+      patch.measurementMode === 'Pro' || patch.mode === 'pro' || String(patch.measurementMode).toLowerCase() === 'pro'
+        ? 'Pro'
+        : 'Simple';
+  }
+  if (patch.measurementType != null) {
+    next.measurementType = String(patch.measurementType || 'unknown').slice(0, 80);
+  }
+  if (patch.measurementMethod != null) {
+    next.measurementMethod = String(patch.measurementMethod).slice(0, 80);
+  }
+  if (patch.unit !== undefined) next.unit = patch.unit ? String(patch.unit).slice(0, 24) : null;
+  if (patch.notes !== undefined) next.notes = patch.notes != null ? String(patch.notes).slice(0, 500) : null;
+  if (patch.elementLabel !== undefined) next.elementLabel = patch.elementLabel || null;
+
+  if (patch.aiMeasurement !== undefined) next.aiMeasurement = num(patch.aiMeasurement);
+  if (patch.userMeasurement !== undefined) next.userMeasurement = num(patch.userMeasurement);
+  if (patch.finalAcceptedMeasurement !== undefined) {
+    next.finalAcceptedMeasurement = num(patch.finalAcceptedMeasurement);
+  } else if (patch.userMeasurement !== undefined && next.finalAcceptedMeasurement == null) {
+    next.finalAcceptedMeasurement = num(patch.userMeasurement);
+  }
+  if (patch.referenceMeasurement !== undefined) {
+    next.referenceMeasurement = num(patch.referenceMeasurement);
+  }
+  if (patch.userCorrection !== undefined) {
+    next.userCorrection = !!(patch.userCorrection === true || patch.userCorrection === 'true' || patch.userCorrection === 'Yes');
+  }
+  if (patch.measurementDurationSec !== undefined) {
+    next.measurementDurationSec = num(patch.measurementDurationSec);
+  }
+
+  // Keep mode-specific mirrors in sync
+  if (next.measurementMode === 'Pro') {
+    next.proModeMeasurement = next.userMeasurement != null ? next.userMeasurement : next.finalAcceptedMeasurement;
+  } else {
+    next.simpleModeMeasurement = next.userMeasurement != null ? next.userMeasurement : next.finalAcceptedMeasurement;
+  }
+
+  const finalV = num(next.finalAcceptedMeasurement != null ? next.finalAcceptedMeasurement : next.userMeasurement);
+  const reference = num(next.referenceMeasurement);
+  const ai = num(next.aiMeasurement);
+  const baseline = reference != null ? reference : ai;
+  if (finalV != null && baseline != null) {
+    const difference = Math.round((finalV - baseline) * 10000) / 10000;
+    next.difference = difference;
+    next.differencePct = Math.abs(baseline) > 1e-9
+      ? Math.round((Math.abs(difference) / Math.abs(baseline)) * 10000) / 100
+      : null;
+  } else {
+    next.difference = null;
+    next.differencePct = null;
+  }
+  if (patch.userCorrection === undefined && ai != null && finalV != null) {
+    next.userCorrection = Math.abs(ai - finalV) > 1e-6;
+  }
+
+  next.updatedAt = nowIso();
+  rows[idx] = next;
+  rewriteJsonl(FILES.measurements, rows);
+  return enrichMeasurementRecord(next);
 }
 
 function enrichMeasurementRecord(row) {
@@ -1566,6 +1659,7 @@ module.exports = {
   createProRevision,
   logMeasurement,
   logMeasurementBatch,
+  updateMeasurement,
   listMeasurements,
   listProjects,
   listSessions,
