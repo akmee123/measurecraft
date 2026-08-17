@@ -2412,39 +2412,94 @@ kbd {
 
         // ----- CONSTANTS & DEFAULTS -----
         const DEFAULTS = {
-            // Matches Material Quantity Estimation formulas (QS rate table)
+            // Quantity formulas only — no money rates (AI / market / user sets prices).
             // Cement density 1440 kg/m³ · Standard bag 50 kg = 0.035 m³
-            concrete: { mix: '1:2:4', dryFactor: 1.54, bagSize: 0.035, waste: 0.05, costPerM3: 120, cementDensity: 1440 },
-            // Brick face rate: 101 bricks / m² wall face (equiv. 218.8×49.2×98.6 mm)
-            brick: { width: 0.2188, height: 0.0986, depth: 0.0492, joint: 0.01, waste: 0.05, costPerUnit: 0.45, perM2: 101 },
+            // Default mix 1:2:4 — yields from Material List 05.A.04 (per Cube → per m³)
+            concrete: { mix: '1:2:4', dryFactor: 1.54, bagSize: 0.035, waste: 0.05, cementDensity: 1440 },
+            // Brick face count: 101 bricks / m² wall face (equiv. 218.8×49.2×98.6 mm)
+            brick: { width: 0.2188, height: 0.0986, depth: 0.0492, joint: 0.01, waste: 0.05, perM2: 101 },
+            // Block work (QS theoretical): 12 blocks/m², face 356.2×179.8 mm, mortar 1:5, shrinkage 1.33
+            // Sand "cube" divisor 2.83 m³ per cube (local practice)
+            block: {
+                perM2: 12,
+                faceWidth: 0.3562,
+                faceHeight: 0.1798,
+                mixParts: 6, // 1:5 cement:sand
+                dryFactor: 1.33,
+                cementDensity: 1440,
+                sandCubeM3: 2.83,
+                thicknesses: { '100': 0.100, '150': 0.150, '200': 0.200 }
+            },
             // Plaster: 10 mm (0.010 m), mix 1:5, dry factor 1.33
-            plaster: { mix: '1:5', dryFactor: 1.33, thickness: 0.010, waste: 0.05, costPerM2: 8.5, cementDensity: 1440 },
+            plaster: { mix: '1:5', dryFactor: 1.33, thickness: 0.010, waste: 0.05, cementDensity: 1440 },
             // Tile 600×600 mm, 5% wastage, skirting default 150 mm, adhesive ~0.25 bags/m² (25 kg)
-            tiling: { size: [600, 600], wastage: 0.05, costPerM2: 35, skirtingHeight: 0.150, adhesiveBagsPerM2: 0.25 },
+            tiling: { size: [600, 600], wastage: 0.05, skirtingHeight: 0.150, adhesiveBagsPerM2: 0.25 },
             // Paint: 14 m²/L per coat, 2 coats, applied to both faces of wall
-            painting: { coverage: 14, coats: 2, bothFaces: true, waste: 0.05, costPerL: 12 },
+            painting: { coverage: 14, coats: 2, bothFaces: true, waste: 0.05 },
         };
 
-        /** Concrete material breakdown (1:2:4 → 7 parts, bag 0.035 m³)
-         *  Per 1 m³ wet: dry 1.54 m³ → Cement 6.29 bags (314.5 kg), Sand 0.440 m³, Agg 0.880 m³
+        /**
+         * Local Material List (QS) mix yields — analysis per 1 Cube ≈ 2.83 m³ (100 cft).
+         * Quantities only (no rates). Source: Material List.xls §05.A Mixing Concrete.
+         * Converted to per 1 m³ wet concrete.
          */
+        const CONCRETE_MIX_TABLE = {
+            // 05.A.04 Mixing Concrete 1:2:4(3/4") — Cement 18 bag, Sand 0.5 Cube, Metal 0.88 Cube / Cube
+            '1:2:4': { bagsPerM3: 18 / 2.83, sandM3PerM3: 0.50, metalM3PerM3: 0.88, metal: '3/4"', ref: '05.A.04' },
+            // 05.A.01 Mixing Concrete 1:1-1/2:3(3/4")
+            '1:1.5:3': { bagsPerM3: 23 / 2.83, sandM3PerM3: 0.42, metalM3PerM3: 0.82, metal: '3/4"', ref: '05.A.01' },
+            '1:1½:3': { bagsPerM3: 23 / 2.83, sandM3PerM3: 0.42, metalM3PerM3: 0.82, metal: '3/4"', ref: '05.A.01' },
+            // 05.A.02 Mixing Concrete 1:3:6(1 1/2") Gr 15
+            '1:3:6': { bagsPerM3: 13 / 2.83, sandM3PerM3: 0.53, metalM3PerM3: 0.92, metal: '1½"', ref: '05.A.02' },
+            // 05.A.03 Mixing Concrete 1:2 1/2 :5 (1")
+            '1:2.5:5': { bagsPerM3: 14 / 2.83, sandM3PerM3: 0.60, metalM3PerM3: 0.90, metal: '1"', ref: '05.A.03' },
+            // 05.A.05 Mixing Concrete 1:1:2(3/4")
+            '1:1:2': { bagsPerM3: 31 / 2.83, sandM3PerM3: 0.44, metalM3PerM3: 0.96, metal: '3/4"', ref: '05.A.05' }
+        };
+
+        /** Concrete material breakdown — prefers Material List yields; falls back to dry-factor theory. */
         function concreteBreakdown(wetVol) {
-            const c = projectOverrides.concrete;
-            const dryVol = wetVol * (c.dryFactor || 1.54);
-            const parts = 7; // 1+2+4
+            const c = projectOverrides.concrete || {};
+            const vol = Math.max(0, Number(wetVol) || 0);
+            const mixKey = String(c.mix || '1:2:4').replace(/\s+/g, '');
+            const yieldRow = CONCRETE_MIX_TABLE[mixKey] || CONCRETE_MIX_TABLE[c.mix] || CONCRETE_MIX_TABLE['1:2:4'];
+            if (yieldRow && vol > 0) {
+                const bagsExact = vol * yieldRow.bagsPerM3;
+                const sand = vol * yieldRow.sandM3PerM3;
+                const agg = vol * yieldRow.metalM3PerM3;
+                const cementKg = bagsExact * 50; // 50 kg bags
+                return {
+                    dryVol: vol * (c.dryFactor || 1.54),
+                    bags: bagsExact,
+                    bagsCeil: Math.ceil(bagsExact),
+                    sand: sand,
+                    agg: agg,
+                    cementKg: cementKg,
+                    mix: c.mix || '1:2:4',
+                    source: yieldRow.ref,
+                    note: 'Cement: ' + bagsExact.toFixed(2) + ' bags (' + cementKg.toFixed(1) +
+                        ' kg), Sand: ' + sand.toFixed(3) + ' m³, Aggregate: ' + agg.toFixed(3) +
+                        ' m³ · mix ' + (c.mix || '1:2:4') + ' (' + yieldRow.ref + ' Material List)'
+                };
+            }
+            // Theoretical fallback 1:2:4 dry factor
+            const dryVol = vol * (c.dryFactor || 1.54);
+            const parts = 7;
             const cementVol = dryVol / parts;
             const bagsExact = cementVol / (c.bagSize || 0.035);
             const sand = (dryVol * 2) / parts;
             const agg = (dryVol * 4) / parts;
             const cementKg = cementVol * (c.cementDensity || 1440);
             return {
-                dryVol,
+                dryVol: dryVol,
                 bags: bagsExact,
                 bagsCeil: Math.ceil(bagsExact),
-                sand,
-                agg,
-                cementKg,
-                note: `Cement: ${bagsExact.toFixed(2)} bags (${cementKg.toFixed(1)} kg), Sand: ${sand.toFixed(3)} m³, Aggregate: ${agg.toFixed(3)} m³ · dry ${dryVol.toFixed(3)} m³`
+                sand: sand,
+                agg: agg,
+                cementKg: cementKg,
+                note: 'Cement: ' + bagsExact.toFixed(2) + ' bags (' + cementKg.toFixed(1) +
+                    ' kg), Sand: ' + sand.toFixed(3) + ' m³, Aggregate: ' + agg.toFixed(3) +
+                    ' m³ · dry ' + dryVol.toFixed(3) + ' m³'
             };
         }
 
@@ -2472,6 +2527,75 @@ kbd {
         /** Tile count with wastage
          *  Per 1 m²: 2.92 tiles (600×600, 5% waste); adhesive avg 0.25 bags/m²
          */
+
+        /**
+         * Block work theoretical (per face m²) — matches QS sheet:
+         * 12 blocks/m², face 356.2×179.8 mm, wall thickness 100/150/200 mm,
+         * mortar vol = wall vol − block vol, cement:sand 1:5, dry factor 1.33.
+         * thicknessMm: 100 | 150 | 200
+         */
+        function blockWorkBreakdown(faceAreaM2, thicknessMm) {
+            const b = (projectOverrides && projectOverrides.block) || {};
+            const perM2 = b.perM2 != null ? b.perM2 : 12;
+            const fw = b.faceWidth != null ? b.faceWidth : 0.3562;
+            const fh = b.faceHeight != null ? b.faceHeight : 0.1798;
+            const dryF = b.dryFactor != null ? b.dryFactor : 1.33;
+            const parts = b.mixParts != null ? b.mixParts : 6;
+            const dens = b.cementDensity != null ? b.cementDensity : 1440;
+            const cube = b.sandCubeM3 != null ? b.sandCubeM3 : 2.83;
+            const thkM = (Number(thicknessMm) || 100) / 1000;
+            const area = Math.max(0, Number(faceAreaM2) || 0);
+            // Volume of 12 fresh blocks for 1 m² of wall
+            const vol12 = fw * fh * thkM * perM2;
+            const wallVol1 = thkM; // 1 m² × thickness
+            const mortar1 = Math.max(0, wallVol1 - vol12);
+            const cementM3_1 = mortar1 * dryF * (1 / parts);
+            const sandM3_1 = mortar1 * dryF * (5 / parts);
+            const blocks = Math.ceil(area * perM2);
+            const mortarM3 = mortar1 * area;
+            const cementM3 = cementM3_1 * area;
+            const sandM3 = sandM3_1 * area;
+            const cementKg = cementM3 * dens;
+            const cementBags = cementM3 / 0.035;
+            const sandCubes = cube > 0 ? sandM3 / cube : 0;
+            return {
+                thicknessMm: Math.round(thkM * 1000),
+                blocks: blocks,
+                blocksPerM2: perM2,
+                mortarM3: mortarM3,
+                cementM3: cementM3,
+                cementKg: cementKg,
+                cementBags: cementBags,
+                sandM3: sandM3,
+                sandCubes: sandCubes,
+                note: 'Block ' + Math.round(thkM * 1000) + 'mm · ' + perM2 + '/m² · mortar 1:5 · face ' +
+                    (area).toFixed(2) + ' m² · cement ' + cementKg.toFixed(2) + ' kg · sand ' + sandM3.toFixed(3) + ' m³'
+            };
+        }
+
+        /** Classify wall as brick or block 100/150/200 from material name or thickness (m). */
+        function classifyWallMasonry(w) {
+            const mat = String((w && w.material) || '').toLowerCase();
+            const thk = (typeof w.thickness === 'number' && w.thickness > 0) ? w.thickness : DEFAULT_WALL_THICKNESS_M;
+            if (mat.indexOf('brick') >= 0 && mat.indexOf('block') < 0) return { kind: 'brick', thicknessMm: Math.round(thk * 1000) };
+            if (mat.indexOf('200') >= 0) return { kind: 'block', thicknessMm: 200 };
+            if (mat.indexOf('150') >= 0) return { kind: 'block', thicknessMm: 150 };
+            if (mat.indexOf('100') >= 0) return { kind: 'block', thicknessMm: 100 };
+            if (mat.indexOf('block') >= 0) {
+                // nearest of 100/150/200
+                const mm = thk * 1000;
+                const nearest = [100, 150, 200].reduce(function (a, b) {
+                    return Math.abs(b - mm) < Math.abs(a - mm) ? b : a;
+                }, 100);
+                return { kind: 'block', thicknessMm: nearest };
+            }
+            // Thickness heuristic when material not set
+            if (thk >= 0.175) return { kind: 'block', thicknessMm: 200 };
+            if (thk >= 0.125) return { kind: 'block', thicknessMm: 150 };
+            if (thk >= 0.09 && thk <= 0.12) return { kind: 'block', thicknessMm: 100 };
+            return { kind: 'brick', thicknessMm: Math.round(thk * 1000) };
+        }
+
         function tileCount(areaM2) {
             const t = projectOverrides.tiling;
             const sz = t.size || [600, 600];
@@ -2506,25 +2630,15 @@ kbd {
             };
         }
 
+        // Material catalogue — no default prices (AI / market rates / user fill costs).
         let materialLibrary = {
-            'Concrete C25': { cost: 120, unit: 'm³', color: '#8a9aa8' },
-            'Concrete C30': { cost: 140, unit: 'm³', color: '#7a8a98' },
-            'Brick Standard': { cost: 0.45, unit: 'ea', color: '#c8a070' },
-            'Brick Face': { cost: 0.85, unit: 'ea', color: '#d4b090' },
-            'Plaster 1:5': { cost: 8.5, unit: 'm²', color: '#d4c8b8' },
-            'Tiling 600x600': { cost: 35, unit: 'm²', color: '#b8c8d4' },
-            'Tiling 300x300': { cost: 28, unit: 'm²', color: '#c8d0d8' },
-            'Paint Interior': { cost: 12, unit: 'L', color: '#e8e0d8' },
-            'Paint Exterior': { cost: 18, unit: 'L', color: '#d8d0c8' },
-            'Steel Rebar': { cost: 850, unit: 'tonne', color: '#8a8a8a' },
-            'Wood Timber': { cost: 450, unit: 'm³', color: '#c8a878' },
-            // Raw material unit rates (edit in Materials library)
             'Cement': { cost: null, unit: 'bag (50kg)', color: '#94a3b8' },
             'Sand': { cost: null, unit: 'm³', color: '#eab308' },
             'Aggregate': { cost: null, unit: 'm³', color: '#78716c' },
             'Brick': { cost: null, unit: 'Nr', color: '#c8a070' },
             'Block 100mm': { cost: null, unit: 'Nr', color: '#a8a29e' },
             'Block 150mm': { cost: null, unit: 'Nr', color: '#78716c' },
+            'Block 200mm': { cost: null, unit: 'Nr', color: '#57534e' },
             'Adhesive': { cost: null, unit: 'bag (25kg)', color: '#64748b' },
             'Tiles (600x600mm)': { cost: null, unit: 'Nr', color: '#b8c8d4' },
             'Paint': { cost: null, unit: 'L', color: '#e8e0d8' },
@@ -2619,11 +2733,36 @@ kbd {
             const paint = paintLitres(wallFaceM2);
             const perM2 = (projectOverrides.brick && projectOverrides.brick.perM2 != null)
                 ? projectOverrides.brick.perM2 : 101;
-            const brickNos = Math.ceil(wallFaceM2 * perM2);
 
-            // Cement bags = concrete + plaster
-            const cementBags = (conc.bags || 0) + (plas.bags || 0);
-            const sandM3 = (conc.sand || 0) + (plas.sand || 0);
+            // Split wall faces: brick vs block 100/150/200 (QS block sheets)
+            let brickFaceM2 = 0;
+            const blockFace = { 100: 0, 150: 0, 200: 0 };
+            walls.forEach(function (w) {
+                if (!accepted(w)) return;
+                const isLine = !!(w.isLine && w.p1 && w.p2);
+                const lenDraw = isLine
+                    ? (Number(w.length) || Math.hypot(Number(w.p2.x) - Number(w.p1.x), Number(w.p2.y) - Number(w.p1.y)))
+                    : Math.max(Number(w.w) || 0, Number(w.h) || 0);
+                const lengthM = lenDraw * cf;
+                const heightM = (w.zHeight != null && w.zHeight > 0) ? w.zHeight : 3.0;
+                const face = lengthM * heightM;
+                const cls = classifyWallMasonry(w);
+                if (cls.kind === 'block' && blockFace[cls.thicknessMm] != null) {
+                    blockFace[cls.thicknessMm] += face;
+                } else {
+                    brickFaceM2 += face;
+                }
+            });
+            const brickNos = Math.ceil(brickFaceM2 * perM2);
+            const blk100 = blockWorkBreakdown(blockFace[100], 100);
+            const blk150 = blockWorkBreakdown(blockFace[150], 150);
+            const blk200 = blockWorkBreakdown(blockFace[200], 200);
+            const blockCementBags = (blk100.cementBags || 0) + (blk150.cementBags || 0) + (blk200.cementBags || 0);
+            const blockSandM3 = (blk100.sandM3 || 0) + (blk150.sandM3 || 0) + (blk200.sandM3 || 0);
+
+            // Cement bags = concrete + plaster + block mortar
+            const cementBags = (conc.bags || 0) + (plas.bags || 0) + blockCementBags;
+            const sandM3 = (conc.sand || 0) + (plas.sand || 0) + blockSandM3;
             const aggM3 = conc.agg || 0;
 
             // Prices empty until online price DB / AI is connected (or user sets them in Material Library)
@@ -2641,7 +2780,7 @@ kbd {
                     qty: Math.ceil(cementBags * 10) / 10,
                     unit: 'bag (50kg)',
                     price: rate('Cement'),
-                    source: 'Concrete ' + concreteVol.toFixed(3) + ' m³ + Plaster ' + wallFaceM2.toFixed(2) + ' m²',
+                    source: 'Concrete ' + concreteVol.toFixed(3) + ' m³ + Plaster + Block mortar 1:5',
                     color: '#94a3b8'
                 },
                 {
@@ -2649,7 +2788,7 @@ kbd {
                     qty: Math.round(sandM3 * 1000) / 1000,
                     unit: 'm³',
                     price: rate('Sand'),
-                    source: 'Concrete mix 1:2:4 + Plaster 1:5',
+                    source: 'Concrete 1:2:4 + Plaster 1:5 + Block mortar 1:5',
                     color: '#eab308'
                 },
                 {
@@ -2665,24 +2804,32 @@ kbd {
                     qty: brickNos,
                     unit: 'Nr',
                     price: rate('Brick'),
-                    source: wallFaceM2.toFixed(2) + ' m² wall face × ' + perM2 + ' /m²',
+                    source: brickFaceM2.toFixed(2) + ' m² brick face × ' + perM2 + ' /m²',
                     color: '#c8a070'
                 },
                 {
                     material: 'Block 100mm',
-                    qty: 0,
+                    qty: blk100.blocks || 0,
                     unit: 'Nr',
                     price: rate('Block 100mm'),
-                    source: 'No block walls detected — assign material on walls to include',
+                    source: blockFace[100] > 0 ? blk100.note : 'No 100mm block walls — set wall material or thickness ~100mm',
                     color: '#a8a29e'
                 },
                 {
                     material: 'Block 150mm',
-                    qty: 0,
+                    qty: blk150.blocks || 0,
                     unit: 'Nr',
                     price: rate('Block 150mm'),
-                    source: 'No block walls detected — assign material on walls to include',
+                    source: blockFace[150] > 0 ? blk150.note : 'No 150mm block walls — set wall material or thickness ~150mm',
                     color: '#78716c'
+                },
+                {
+                    material: 'Block 200mm',
+                    qty: blk200.blocks || 0,
+                    unit: 'Nr',
+                    price: rate('Block 200mm'),
+                    source: blockFace[200] > 0 ? blk200.note : 'No 200mm block walls — set wall material or thickness ~200mm',
+                    color: '#57534e'
                 },
                 {
                     material: 'Adhesive',
@@ -10306,16 +10453,20 @@ kbd {
                     return materialLibrary[k];
                 }
             }
-            if (lower.indexOf('brick') >= 0) {
-                return materialLibrary['Brick Standard'] || materialLibrary['Brick Face'] || null;
+            if (lower.indexOf('brick') >= 0 || lower.indexOf('block') >= 0) {
+                return materialLibrary['Brick'] || materialLibrary['Block 100mm'] || materialLibrary['Block 150mm'] || null;
             }
-            if (lower.indexOf('concrete') >= 0 || lower.indexOf('slab') >= 0 ||
-                lower.indexOf('column') >= 0 || lower.indexOf('beam') >= 0) {
-                return materialLibrary['Concrete C25'] || materialLibrary['Concrete C30'] || null;
+            if (lower.indexOf('concrete') >= 0 || lower.indexOf('cement') >= 0 ||
+                lower.indexOf('slab') >= 0 || lower.indexOf('column') >= 0 || lower.indexOf('beam') >= 0) {
+                return materialLibrary['Cement'] || materialLibrary['Aggregate'] || null;
             }
-            if (lower.indexOf('plaster') >= 0) return materialLibrary['Plaster 1:5'] || null;
-            if (lower.indexOf('til') >= 0) return materialLibrary['Tiling 600x600'] || null;
-            if (lower.indexOf('paint') >= 0) return materialLibrary['Paint Interior'] || null;
+            if (lower.indexOf('plaster') >= 0 || lower.indexOf('sand') >= 0) {
+                return materialLibrary['Sand'] || materialLibrary['Cement'] || null;
+            }
+            if (lower.indexOf('til') >= 0 || lower.indexOf('adhesive') >= 0) {
+                return materialLibrary['Tiles (600x600mm)'] || materialLibrary['Adhesive'] || null;
+            }
+            if (lower.indexOf('paint') >= 0) return materialLibrary['Paint'] || null;
             return null;
         }
 
@@ -11154,7 +11305,19 @@ kbd {
                         const data = JSON.parse(ev.target.result);
                         if (data.elements) {
                             elements = data.elements;
-                            if (data.projectOverrides) projectOverrides = data.projectOverrides;
+                            if (data.projectOverrides) {
+                                projectOverrides = data.projectOverrides;
+                                // Strip legacy money rates (AI decides rates)
+                                try {
+                                    Object.keys(projectOverrides).forEach(function (g) {
+                                        const o = projectOverrides[g];
+                                        if (!o || typeof o !== 'object') return;
+                                        Object.keys(o).forEach(function (k) {
+                                            if (/^cost/i.test(k) || /costPer/i.test(k)) delete o[k];
+                                        });
+                                    });
+                                } catch (_) {}
+                            }
                             if (data.materialLibrary) materialLibrary = { ...materialLibrary, ...data
                                     .materialLibrary };
                             if (data.layers) layers = data.layers;
@@ -11292,6 +11455,8 @@ kbd {
                 const obj = projectOverrides[g.key];
                 if (!obj) return;
                 Object.keys(obj).forEach(key => {
+                    // Hide money rates — prices come from AI / Material Library only
+                    if (/^cost/i.test(key) || /costPer/i.test(key)) return;
                     let val = obj[key];
                     if (Array.isArray(val)) {
                         val.forEach((item, index) => {
