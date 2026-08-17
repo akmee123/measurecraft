@@ -2264,9 +2264,29 @@
       };
     }
 
+    const CONCRETE_MIX_TABLE = {
+      '1:2:4': { bagsPerM3: 18 / 2.83, sandM3PerM3: 0.50, metalM3PerM3: 0.88, ref: '05.A.04' },
+      '1:1.5:3': { bagsPerM3: 23 / 2.83, sandM3PerM3: 0.42, metalM3PerM3: 0.82, ref: '05.A.01' },
+      '1:1½:3': { bagsPerM3: 23 / 2.83, sandM3PerM3: 0.42, metalM3PerM3: 0.82, ref: '05.A.01' },
+      '1:3:6': { bagsPerM3: 13 / 2.83, sandM3PerM3: 0.53, metalM3PerM3: 0.92, ref: '05.A.02' },
+      '1:2.5:5': { bagsPerM3: 14 / 2.83, sandM3PerM3: 0.60, metalM3PerM3: 0.90, ref: '05.A.03' },
+      '1:1:2': { bagsPerM3: 31 / 2.83, sandM3PerM3: 0.44, metalM3PerM3: 0.96, ref: '05.A.05' }
+    };
     function concreteBreakdown(wetVol) {
       const c = MAT_DEFAULTS.concrete;
-      const dryVol = wetVol * (c.dryFactor || 1.54);
+      const vol = Math.max(0, Number(wetVol) || 0);
+      const mixKey = String((c && c.mix) || '1:2:4').replace(/\s+/g, '');
+      const yieldRow = (typeof CONCRETE_MIX_TABLE !== 'undefined') && (CONCRETE_MIX_TABLE[mixKey] || CONCRETE_MIX_TABLE['1:2:4']);
+      if (yieldRow && vol > 0) {
+        const bags = vol * yieldRow.bagsPerM3;
+        return {
+          bags: bags,
+          sand: vol * yieldRow.sandM3PerM3,
+          agg: vol * yieldRow.metalM3PerM3,
+          cementKg: bags * 50
+        };
+      }
+      const dryVol = vol * (c.dryFactor || 1.54);
       const parts = 7;
       const cementVol = dryVol / parts;
       const bags = cementVol / (c.bagSize || 0.035);
