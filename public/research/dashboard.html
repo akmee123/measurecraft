@@ -245,6 +245,70 @@
     </div>
 
     <div class="card">
+      <h2>Manual measurement entry (Pro / Simple)</h2>
+      <p class="hint" style="margin:0 0 12px;line-height:1.45;">
+        Record research quantities <strong>manually</strong> without AI detection.
+        Select <strong>Pro</strong> for professional-mode trials. Required fields are marked *.
+        After save, the row appears in Measurement records below; use <em>Edit</em> to change or <em>Delete</em> to remove.
+      </p>
+      <input type="hidden" id="manRecordId" value="" />
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:end;">
+        <label>Participant ID *
+          <input id="manPart" type="text" placeholder="e.g. P01" style="min-width:100px;" />
+        </label>
+        <label>Mode *
+          <select id="manMode" style="min-width:100px;">
+            <option value="pro" selected>Pro</option>
+            <option value="simple">Simple</option>
+          </select>
+        </label>
+        <label>Measurement type *
+          <input id="manType" type="text" list="manTypeList" placeholder="wall / column / slab …" style="min-width:140px;" />
+          <datalist id="manTypeList">
+            <option value="wall"></option>
+            <option value="column"></option>
+            <option value="slab"></option>
+            <option value="beam"></option>
+            <option value="door"></option>
+            <option value="window"></option>
+            <option value="brickwork"></option>
+            <option value="concrete"></option>
+          </datalist>
+        </label>
+        <label>User / final value *
+          <input id="manUser" type="number" step="any" placeholder="e.g. 12.5" style="min-width:100px;" />
+        </label>
+        <label>Unit
+          <input id="manUnit" type="text" placeholder="m² / m³ / Nr" style="min-width:80px;" />
+        </label>
+        <label>Reference (optional)
+          <input id="manRef" type="number" step="any" placeholder="ground truth" style="min-width:100px;" />
+        </label>
+        <label>AI (optional)
+          <input id="manAi" type="number" step="any" placeholder="AI qty if any" style="min-width:100px;" />
+        </label>
+        <label>Drawing ID
+          <input id="manDwg" type="text" placeholder="DWG-0001" style="min-width:110px;" />
+        </label>
+        <label>Project ID
+          <input id="manProj" type="text" placeholder="PROJ-0001" style="min-width:110px;" />
+        </label>
+        <label>Element label
+          <input id="manLabel" type="text" placeholder="Wall-1" style="min-width:100px;" />
+        </label>
+        <label>Notes
+          <input id="manNotes" type="text" placeholder="optional notes" style="min-width:160px;" />
+        </label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <button type="button" id="btnManSave">Save record</button>
+        <button type="button" class="secondary" id="btnManCancel">Cancel edit</button>
+        <button type="button" class="secondary" id="btnManClear">Clear form</button>
+        <span id="manMsg" class="hint" style="margin:0;"></span>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Measurement records</h2>
       <div class="table-wrap">
         <table>
@@ -265,7 +329,7 @@
               <th>Duration (s)</th>
               <th>Project / Drawing</th>
               <th>Notes</th>
-              <th>Delete</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
@@ -439,7 +503,25 @@
           <td>${fmt(row.measurementDurationSec)}</td>
           <td class="mono">${esc(row.projectId || '—')} / ${esc(row.drawingId || '—')}</td>
           <td>${safeText(row.notes, 'No additional notes')}</td>
-          <td><button type="button" class="btn-del" data-id="${esc(rid)}">Delete</button></td>`;
+          <td style="white-space:nowrap;">
+            <button type="button" class="secondary btn-edit" data-id="${esc(rid)}" style="margin-right:4px;">Edit</button>
+            <button type="button" class="btn-del" data-id="${esc(rid)}">Delete</button>
+          </td>`;
+        tr.dataset.record = JSON.stringify({
+          recordId: rid,
+          participantId: row.participantId || '',
+          measurementMode: row.measurementMode || '',
+          measurementType: row.measurementType || '',
+          userMeasurement: row.userMeasurement,
+          finalAcceptedMeasurement: row.finalAcceptedMeasurement,
+          unit: row.unit || '',
+          referenceMeasurement: row.referenceMeasurement,
+          aiMeasurement: row.aiMeasurement,
+          drawingId: row.drawingId || '',
+          projectId: row.projectId || '',
+          elementLabel: row.elementLabel || '',
+          notes: row.notes || '',
+        });
         tb.appendChild(tr);
       });
       tb.querySelectorAll('.btn-del').forEach((btn) => {
@@ -457,13 +539,125 @@
             if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
             await loadSummary();
             await loadRecords();
-            $('authMsg').innerHTML = '<div class="ok">Deleted ' + (data.deleted || 1) + ' record(s).</div>';
+            if ($('authMsg')) $('authMsg').innerHTML = '<div class="ok">Deleted ' + (data.deleted || 1) + ' record(s).</div>';
           } catch (e) {
-            $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
+            if ($('authMsg')) $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
           }
         });
       });
-      $('rowCount').textContent = (data.records || []).length + ' record(s) shown';
+      tb.querySelectorAll('.btn-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const tr = btn.closest('tr');
+          if (!tr || !tr.dataset.record) return;
+          let row;
+          try { row = JSON.parse(tr.dataset.record); } catch (_) { return; }
+          fillManualForm(row);
+          if ($('manMsg')) $('manMsg').innerHTML = '<span class="ok">Editing ' + esc(row.recordId) + ' — change fields and Save.</span>';
+          try { $('manPart').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        });
+      });
+      if ($('rowCount')) $('rowCount').textContent = (data.records || []).length + ' record(s) shown';
+    }
+
+    function clearManualForm() {
+      if ($('manRecordId')) $('manRecordId').value = '';
+      ['manPart', 'manType', 'manUser', 'manUnit', 'manRef', 'manAi', 'manDwg', 'manProj', 'manLabel', 'manNotes'].forEach((id) => {
+        if ($(id)) $(id).value = '';
+      });
+      if ($('manMode')) $('manMode').value = 'pro';
+      if ($('btnManSave')) $('btnManSave').textContent = 'Save record';
+      if ($('manMsg')) $('manMsg').textContent = '';
+    }
+
+    function fillManualForm(row) {
+      if (!row) return;
+      if ($('manRecordId')) $('manRecordId').value = row.recordId || '';
+      if ($('manPart')) $('manPart').value = row.participantId || '';
+      if ($('manMode')) {
+        $('manMode').value = String(row.measurementMode || 'pro').toLowerCase() === 'simple' ? 'simple' : 'pro';
+      }
+      if ($('manType')) $('manType').value = row.measurementType || '';
+      const uv = row.finalAcceptedMeasurement != null ? row.finalAcceptedMeasurement : row.userMeasurement;
+      if ($('manUser')) $('manUser').value = uv != null ? uv : '';
+      if ($('manUnit')) $('manUnit').value = row.unit || '';
+      if ($('manRef')) $('manRef').value = row.referenceMeasurement != null ? row.referenceMeasurement : '';
+      if ($('manAi')) $('manAi').value = row.aiMeasurement != null ? row.aiMeasurement : '';
+      if ($('manDwg')) $('manDwg').value = row.drawingId || '';
+      if ($('manProj')) $('manProj').value = row.projectId || '';
+      if ($('manLabel')) $('manLabel').value = row.elementLabel || '';
+      if ($('manNotes')) $('manNotes').value = row.notes || '';
+      if ($('btnManSave')) $('btnManSave').textContent = row.recordId ? 'Update record' : 'Save record';
+    }
+
+    async function saveManualRecord() {
+      const editId = ($('manRecordId') && $('manRecordId').value.trim()) || '';
+      const participantId = ($('manPart') && $('manPart').value.trim()) || '';
+      const measurementType = ($('manType') && $('manType').value.trim()) || '';
+      const userRaw = $('manUser') && $('manUser').value;
+      const mode = ($('manMode') && $('manMode').value) || 'pro';
+
+      if (!participantId) {
+        if ($('manMsg')) $('manMsg').innerHTML = '<span class="err">Participant ID is required.</span>';
+        return;
+      }
+      if (!measurementType) {
+        if ($('manMsg')) $('manMsg').innerHTML = '<span class="err">Measurement type is required.</span>';
+        return;
+      }
+      if (userRaw === '' || userRaw == null || !Number.isFinite(Number(userRaw))) {
+        if ($('manMsg')) $('manMsg').innerHTML = '<span class="err">Enter a valid numeric user / final value.</span>';
+        return;
+      }
+
+      const payload = {
+        participantId,
+        measurementMode: mode === 'simple' ? 'Simple' : 'Pro',
+        mode: mode,
+        measurementType,
+        userMeasurement: Number(userRaw),
+        finalAcceptedMeasurement: Number(userRaw),
+        unit: ($('manUnit') && $('manUnit').value.trim()) || '',
+        drawingId: ($('manDwg') && $('manDwg').value.trim()) || null,
+        projectId: ($('manProj') && $('manProj').value.trim()) || null,
+        elementLabel: ($('manLabel') && $('manLabel').value.trim()) || null,
+        notes: ($('manNotes') && $('manNotes').value.trim()) || null,
+        measurementMethod: 'manual_dashboard_entry',
+      };
+      const refRaw = $('manRef') && $('manRef').value;
+      const aiRaw = $('manAi') && $('manAi').value;
+      if (refRaw !== '' && refRaw != null && Number.isFinite(Number(refRaw))) payload.referenceMeasurement = Number(refRaw);
+      if (aiRaw !== '' && aiRaw != null && Number.isFinite(Number(aiRaw))) payload.aiMeasurement = Number(aiRaw);
+
+      try {
+        let r;
+        if (editId) {
+          payload.recordId = editId;
+          r = await fetch('/api/research/records/update', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
+            body: JSON.stringify(payload),
+          });
+        } else {
+          r = await fetch('/api/research/records/manual', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
+            body: JSON.stringify(payload),
+          });
+        }
+        const data = await parseJsonResponse(r);
+        if (!r.ok || data.success === false) {
+          throw new Error(data.error || ('HTTP ' + r.status));
+        }
+        if ($('manMsg')) {
+          $('manMsg').innerHTML = '<span class="ok">' + (editId ? 'Updated' : 'Saved') +
+            ' record ' + esc((data.record && data.record.recordId) || editId) + '.</span>';
+        }
+        clearManualForm();
+        await loadSummary();
+        await loadRecords();
+      } catch (e) {
+        if ($('manMsg')) $('manMsg').innerHTML = '<span class="err">' + (e.message || e) + '</span>';
+      }
     }
 
     async function loadDrawingsList() {
@@ -729,6 +923,21 @@
     }));
     $('btnExportCsv').addEventListener('click', () => downloadExport('csv'));
     $('btnExportJson').addEventListener('click', () => downloadExport('json'));
+    const btnManSave = $('btnManSave');
+    if (btnManSave) btnManSave.addEventListener('click', () => saveManualRecord());
+    const btnManClear = $('btnManClear');
+    if (btnManClear) btnManClear.addEventListener('click', () => clearManualForm());
+    const btnManCancel = $('btnManCancel');
+    if (btnManCancel) btnManCancel.addEventListener('click', () => {
+      clearManualForm();
+      if ($('manMsg')) $('manMsg').innerHTML = '<span class="hint">Edit cancelled.</span>';
+    });
+    // Enter in user value field saves
+    if ($('manUser')) {
+      $('manUser').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveManualRecord(); }
+      });
+    }
     const btnLd = $('btnLoadDrawings');
     if (btnLd) btnLd.addEventListener('click', () => loadDrawingsList().catch((e) => {
       $('authMsg').innerHTML = '<div class="err">' + (e.message || e) + '</div>';
