@@ -2417,7 +2417,7 @@ kbd {
             // Default mix 1:2:4 — yields from Material List 05.A.04 (per Cube → per m³)
             concrete: { mix: '1:2:4', dryFactor: 1.54, bagSize: 0.035, waste: 0.05, cementDensity: 1440 },
             // Brick face count: 101 bricks / m² wall face (equiv. 218.8×49.2×98.6 mm)
-            brick: { width: 0.2188, height: 0.0986, depth: 0.0492, joint: 0.01, waste: 0.05, perM2: 101 },
+            brick: { width: 0.205, height: 0.095, depth: 0.075, joint: 0.01, waste: 0.05, perM2: 101 },
             // Block work (QS theoretical): 12 blocks/m², face 356.2×179.8 mm, mortar 1:5, shrinkage 1.33
             // Sand "cube" divisor 2.83 m³ per cube (local practice)
             block: {
@@ -11443,7 +11443,7 @@ kbd {
             const content = document.getElementById('settingsContent');
             const groups = [
                 { label: 'Concrete', key: 'concrete' },
-                { label: 'Brick/Block', key: 'brick' },
+                { label: 'Brick', key: 'brick' },
                 { label: 'Plaster', key: 'plaster' },
                 { label: 'Tiling', key: 'tiling' },
                 { label: 'Painting', key: 'painting' },
