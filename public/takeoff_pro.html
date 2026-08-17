@@ -3625,11 +3625,16 @@ kbd {
             list.forEach(function (el) { rotateElementBy(el, deg, pivot); });
             renderAll();
             try {
-                if (window.MCResearch && typeof MCResearch.notifyElementChange === 'function') {
-                    list.forEach(function (el) {
-                        MCResearch.notifyElementChange('edit', el, { mode: 'pro', action: 'rotate' });
-                    });
-                }
+                list.forEach(function (el) {
+                    if (typeof markElementEdited === 'function') markElementEdited(el);
+                    if (window.MCResearch && typeof MCResearch.notifyElementChange === 'function') {
+                        MCResearch.notifyElementChange('edit', el, {
+                            mode: 'pro',
+                            notes: 'rotate:' + deg + 'deg'
+                        });
+                    }
+                });
+                if (typeof scheduleResearchQuantitySync === 'function') scheduleResearchQuantitySync();
             } catch (_) {}
         }
 
@@ -8969,6 +8974,22 @@ kbd {
                         saveState();
                     }
                     renderAll();
+                }
+                // Free-rotate drag finished → research dashboard (edit + geometry snapshot + quantities)
+                if (dragMode === 'reshape' && editingVertex && editingVertex.rotate) {
+                    const el = elements.find(function (ee) { return ee.id === editingVertex.elId; });
+                    if (el) {
+                        try {
+                            if (typeof markElementEdited === 'function') markElementEdited(el);
+                            if (window.MCResearch && typeof MCResearch.notifyElementChange === 'function') {
+                                MCResearch.notifyElementChange('edit', el, {
+                                    mode: 'pro',
+                                    notes: 'rotate:drag'
+                                });
+                            }
+                            if (typeof scheduleResearchQuantitySync === 'function') scheduleResearchQuantitySync();
+                        } catch (_) {}
+                    }
                 }
                 if (dragMode === 'pan') {
                     isPanning = false;
