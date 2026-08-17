@@ -2204,8 +2204,8 @@ kbd {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;font-size:12px;margin-bottom:16px;">
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Select</span><kbd>V</kbd></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Pan</span><kbd>H / Space</kbd></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Finish drawing</span><kbd>Enter</kbd></div>
-                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Cancel</span><kbd>Esc</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Finish element (stay in tool)</span><kbd>Enter</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Cancel / exit tool</span><kbd>Esc</kbd></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Delete</span><kbd>Del</kbd></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Undo / Redo</span><kbd>Ctrl+Z / Y</kbd></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Copy / Paste</span><kbd>Ctrl+C / V</kbd></div>
@@ -2854,6 +2854,12 @@ kbd {
         let continuousTempPreview = null; // {x1,y1,x2,y2} live preview
         let editingVertex = null; // { elId, vertexIndex, isEndpoint: 'p1'|'p2'|null } for reshape
 
+        // Overlapping-element selection stack (Ctrl/Cmd+click cycles)
+        let overlapHitIds = [];       // ordered list of element ids under cursor
+        let overlapCycleIndex = 0;
+        let lastOverlapKey = '';
+        let hoverLabelWorld = null;   // { x, y } for on-canvas hover name/type label
+
         // Measurement state
         let measurePoints = [];
         let measureMode = false;
@@ -2937,6 +2943,85 @@ kbd {
                 x: wx * viewport.scale + viewport.offsetX,
                 y: wy * viewport.scale + viewport.offsetY,
             };
+        }
+
+        /**
+         * Convert a desired on-screen pixel width to canvas (world) lineWidth.
+         * Context is scaled by viewport.scale, so dividing keeps thickness stable on screen.
+         * At high zoom we gently reduce thickness further so boundaries do not obscure PDF detail.
+         */
+        function screenLineWidth(basePx) {
+            const s = Math.max(viewport.scale || 1, 0.001);
+            let px = basePx;
+            if (s > 2) {
+                // At s=2 ≈ same; at s=8 ≈ 0.6×; floor at 0.45× base
+                const factor = Math.max(0.45, Math.pow(2 / s, 0.35));
+                px = basePx * factor;
+            }
+            return Math.max(0.4 / s, px / s);
+        }
+
+        /** World-space padding equal to ~N screen pixels (selection boxes, etc.). */
+        function screenPad(px) {
+            return (px || 2) / Math.max(viewport.scale || 1, 0.001);
+        }
+
+        // ---- CAD-style object snap (to existing takeoff element geometry) ----
+        let hoveredSnapId = null;
+        let snapCursorPoint = null;
+        const SNAP_TOLERANCE_PX = 14;
+
+        /**
+         * Nearest element geometry to a world point within screen-pixel tolerance.
+         * Returns { el, point: {x,y}, dist } or null.
+         * Uses actual geometry (segments, polygon edges, rect edges), not mouse-only bbox.
+         */
+        function findNearestElementSnap(world, options) {
+            options = options || {};
+            const tolWorld = (options.tolerancePx != null ? options.tolerancePx : SNAP_TOLERANCE_PX)
+                / Math.max(viewport.scale || 1, 0.001);
+            const typeFilter = options.types || null;
+            let best = null;
+            let bestDist = tolWorld;
+
+            function consider(el, pt, dist) {
+                if (dist > bestDist) return;
+                bestDist = dist;
+                best = { el: el, point: { x: pt.x, y: pt.y }, dist: dist };
+            }
+
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                if (el.hidden) continue;
+                if (typeFilter && typeFilter.indexOf(el.type) < 0) continue;
+
+                if (el.isLine && el.p1 && el.p2) {
+                    const np = nearestPointOnSegment(world.x, world.y, el.p1.x, el.p1.y, el.p2.x, el.p2.y);
+                    const d = Math.hypot(world.x - np.x, world.y - np.y);
+                    const thk = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(el) : 0) / 2;
+                    consider(el, np, Math.max(0, d - thk));
+                } else if (el.vertices && el.vertices.length >= 2) {
+                    const pts = el.vertices;
+                    for (let j = 0; j < pts.length; j++) {
+                        const a = pts[j], b = pts[(j + 1) % pts.length];
+                        const np = nearestPointOnSegment(world.x, world.y, a.x, a.y, b.x, b.y);
+                        const d = Math.hypot(world.x - np.x, world.y - np.y);
+                        consider(el, np, d);
+                    }
+                } else if (el.w != null && el.h != null) {
+                    const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
+                    const edges = [
+                        [x0, y0, x1, y0], [x1, y0, x1, y1],
+                        [x1, y1, x0, y1], [x0, y1, x0, y0]
+                    ];
+                    for (const [ax, ay, bx, by] of edges) {
+                        const np = nearestPointOnSegment(world.x, world.y, ax, ay, bx, by);
+                        const d = Math.hypot(world.x - np.x, world.y - np.y);
+                        consider(el, np, d);
+                    }
+                }
+            }
+            return best;
         }
 
         // Keep the DOM measurement badge anchored to its world-space midpoint.
@@ -4357,6 +4442,100 @@ kbd {
             return { x: ax + t * abx, y: ay + t * aby, t: t };
         }
 
+        /** Opening sill above FFL (m). Windows default 0.9 m; doors/openings default 0. */
+        function getOpeningSillM(el) {
+            if (!el) return 0;
+            if (typeof el.sillHeight === 'number' && isFinite(el.sillHeight) && el.sillHeight >= 0) {
+                return el.sillHeight;
+            }
+            const ot = el.openingType || el.type;
+            if (ot === 'window' || el.type === 'window') return 0.9;
+            return 0;
+        }
+
+        /** Opening clear height (m). */
+        function getOpeningHeightM(el) {
+            if (!el) return 2.1;
+            if (typeof el.zHeight === 'number' && isFinite(el.zHeight) && el.zHeight > 0) {
+                return el.zHeight;
+            }
+            const ot = el.openingType || el.type;
+            if (ot === 'window' || el.type === 'window') return 1.2;
+            return 2.1;
+        }
+
+        /** True if world point hits element geometry (with small screen-pixel tolerance). */
+        function elementHitsPoint(el, world) {
+            if (!el || el.hidden) return false;
+            const tol = 6 / Math.max(viewport.scale || 1, 0.001);
+            if (el.isLine && el.p1 && el.p2) {
+                const np = nearestPointOnSegment(world.x, world.y, el.p1.x, el.p1.y, el.p2.x, el.p2.y);
+                const thk = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(el) : 0) / 2 + tol;
+                return Math.hypot(world.x - np.x, world.y - np.y) <= thk;
+            }
+            if (el.vertices && el.vertices.length >= 3) {
+                // Point-in-polygon (ray cast) with edge tolerance
+                const pts = el.vertices.map(v => ({ x: el.x + v.x, y: el.y + v.y }));
+                let inside = false;
+                for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                    const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+                    const np = nearestPointOnSegment(world.x, world.y, xi, yi, xj, yj);
+                    if (Math.hypot(world.x - np.x, world.y - np.y) <= tol) return true;
+                    const intersect = ((yi > world.y) !== (yj > world.y)) &&
+                        (world.x < (xj - xi) * (world.y - yi) / ((yj - yi) || 1e-12) + xi);
+                    if (intersect) inside = !inside;
+                }
+                return inside;
+            }
+            if (el.w != null && el.h != null) {
+                return world.x >= el.x - tol && world.x <= el.x + el.w + tol &&
+                    world.y >= el.y - tol && world.y <= el.y + el.h + tol;
+            }
+            return false;
+        }
+
+        /**
+         * All elements under a world point, top-most first (reverse of array order).
+         * Used for overlap detection and Ctrl+click cycling.
+         */
+        function hitTestAllElements(world) {
+            const hits = [];
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                if (elementHitsPoint(el, world)) hits.push(el);
+            }
+            return hits;
+        }
+
+        /** Axis-aligned bounds overlap (with small pad) — for drawing overlap cues. */
+        function elementsAabbOverlap(a, b, pad) {
+            pad = pad || 0;
+            const ax0 = a.isLine ? Math.min(a.p1.x, a.p2.x) - pad : a.x - pad;
+            const ay0 = a.isLine ? Math.min(a.p1.y, a.p2.y) - pad : a.y - pad;
+            const ax1 = a.isLine ? Math.max(a.p1.x, a.p2.x) + pad : a.x + (a.w || 0) + pad;
+            const ay1 = a.isLine ? Math.max(a.p1.y, a.p2.y) + pad : a.y + (a.h || 0) + pad;
+            const bx0 = b.isLine ? Math.min(b.p1.x, b.p2.x) - pad : b.x - pad;
+            const by0 = b.isLine ? Math.min(b.p1.y, b.p2.y) - pad : b.y - pad;
+            const bx1 = b.isLine ? Math.max(b.p1.x, b.p2.x) + pad : b.x + (b.w || 0) + pad;
+            const by1 = b.isLine ? Math.max(b.p1.y, b.p2.y) + pad : b.y + (b.h || 0) + pad;
+            return ax0 < bx1 && ax1 > bx0 && ay0 < by1 && ay1 > by0;
+        }
+
+        /** Set of element ids that spatially overlap at least one other visible element. */
+        function computeOverlappingElementIds() {
+            const vis = elements.filter(el => !el.hidden);
+            const ids = new Set();
+            for (let i = 0; i < vis.length; i++) {
+                for (let j = i + 1; j < vis.length; j++) {
+                    if (elementsAabbOverlap(vis[i], vis[j], 2 / Math.max(viewport.scale || 1, 0.001))) {
+                        ids.add(vis[i].id);
+                        ids.add(vis[j].id);
+                    }
+                }
+            }
+            return ids;
+        }
+
         // ----- RENDER CANVAS 2D -----
         function loadBackgroundFromSrc(src, opts) {
             opts = opts || {};
@@ -5134,6 +5313,7 @@ kbd {
             }
 
             // ---- Draw elements ----
+            const overlappingIds = computeOverlappingElementIds();
             visibleEls.forEach(el => {
                 const { x, y, w, h } = el;
                 ctx.save();
@@ -5166,8 +5346,8 @@ kbd {
                     } else {
                         ctx.fillStyle = el.color + '60';
                         ctx.strokeStyle = el.locked ? '#888' : el.color;
-                        ctx.lineWidth = isAiStyled(el) ? 2 : 3;
-                        ctx.setLineDash(isAiStyled(el) ? [] : [6, 4]);
+                        ctx.lineWidth = screenLineWidth(isAiStyled(el) ? 2 : 2.5);
+                        ctx.setLineDash(isAiStyled(el) ? [] : [6 / viewport.scale, 4 / viewport.scale]);
                         ctx.fill();
                         ctx.stroke();
                         ctx.setLineDash([]);
@@ -5180,12 +5360,13 @@ kbd {
                         ctx.fill();
                     });
                     if (selectedIds.includes(el.id)) {
+                        const pad = screenPad(2);
                         ctx.shadowBlur = 16 / viewport.scale;
                         ctx.shadowColor = '#B8863B';
                         ctx.strokeStyle = '#B8863B';
-                        ctx.lineWidth = 2;
+                        ctx.lineWidth = screenLineWidth(2);
                         ctx.setLineDash([]);
-                        ctx.strokeRect(el.x - 2, el.y - 2, el.w + 4, el.h + 4);
+                        ctx.strokeRect(el.x - pad, el.y - pad, el.w + pad * 2, el.h + pad * 2);
                         if (selectedIds.length === 1 && !el.locked) {
                             const handles = [
                                 [el.x, el.y],
@@ -5221,6 +5402,14 @@ kbd {
                             });
                         }
                     }
+                    if (hoveredSnapId === el.id && !selectedIds.includes(el.id)) {
+                        const hpad = screenPad(3);
+                        ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
+                        ctx.strokeStyle = '#ffaa00';
+                        ctx.lineWidth = screenLineWidth(3);
+                        ctx.strokeRect(el.x - hpad, el.y - hpad, el.w + hpad * 2, el.h + hpad * 2);
+                        ctx.setLineDash([]);
+                    }
                     ctx.restore();
                     ctx.fillStyle = '#333';
                     ctx.font = `${9/viewport.scale}px sans-serif`;
@@ -5246,7 +5435,7 @@ kbd {
                     ctx.rotate(angle);
                     ctx.fillStyle = el.color + '60';
                     ctx.strokeStyle = el.locked ? '#888' : el.color;
-                    ctx.lineWidth = (isAiStyled(el) ? 2 : 2.5) / viewport.scale;
+                    ctx.lineWidth = screenLineWidth(isAiStyled(el) ? 2 : 2.5);
                     ctx.setLineDash(isAiStyled(el) ? [] : [6 / viewport.scale, 4 / viewport.scale]);
                     ctx.fillRect(-len / 2, -thkDraw / 2, len, thkDraw);
                     ctx.strokeRect(-len / 2, -thkDraw / 2, len, thkDraw);
@@ -5260,7 +5449,7 @@ kbd {
                     ctx.fill();
                     if (selectedIds.includes(el.id)) {
                         ctx.strokeStyle = '#B8863B';
-                        ctx.lineWidth = 2.5 / viewport.scale;
+                        ctx.lineWidth = screenLineWidth(2.5);
                         ctx.strokeRect(-len / 2 - 2 / viewport.scale, -thkDraw / 2 - 2 / viewport.scale,
                             len + 4 / viewport.scale, thkDraw + 4 / viewport.scale);
                         if (selectedIds.length === 1 && !el.locked) {
@@ -5273,11 +5462,12 @@ kbd {
                             ctx.fill();
                         }
                     }
-                    // Highlight if hovered parent
-                    if (hoveredParentId === el.id && (currentTool === 'deduction_wall')) {
+                    // Highlight if hovered (deduction parent or general CAD snap)
+                    if ((hoveredParentId === el.id && currentTool === 'deduction_wall') ||
+                        hoveredSnapId === el.id) {
                         ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
                         ctx.strokeStyle = '#ffaa00';
-                        ctx.lineWidth = 4 / viewport.scale;
+                        ctx.lineWidth = screenLineWidth(3);
                         ctx.strokeRect(-len / 2 - 4 / viewport.scale, -thkDraw / 2 - 4 / viewport.scale,
                             len + 8 / viewport.scale, thkDraw + 8 / viewport.scale);
                         ctx.setLineDash([]);
@@ -5316,19 +5506,20 @@ kbd {
                 } else {
                     ctx.fillStyle = el.color + '60';
                     ctx.strokeStyle = el.locked ? '#888' : el.color;
-                    ctx.lineWidth = isAiStyled(el) ? 2 : 3;
-                    ctx.setLineDash(isAiStyled(el) ? [] : [6, 4]);
+                    ctx.lineWidth = screenLineWidth(isAiStyled(el) ? 2 : 2.5);
+                    ctx.setLineDash(isAiStyled(el) ? [] : [6 / viewport.scale, 4 / viewport.scale]);
                     ctx.fillRect(x, y, w, h);
                     ctx.strokeRect(x, y, w, h);
                 }
 
                 if (selectedIds.includes(el.id) && !el.vertices) {
+                    const pad = screenPad(2);
                     ctx.shadowBlur = 16 / viewport.scale;
                     ctx.shadowColor = '#B8863B';
                     ctx.strokeStyle = '#B8863B';
-                    ctx.lineWidth = 2;
+                    ctx.lineWidth = screenLineWidth(2);
                     ctx.setLineDash([]);
-                    ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
+                    ctx.strokeRect(x - pad, y - pad, w + pad * 2, h + pad * 2);
                     if (selectedIds.length === 1 && !el.locked) {
                         const handles = [
                             [x, y, 'nw'],
@@ -5354,6 +5545,15 @@ kbd {
                         });
                     }
                 }
+                // CAD snap hover highlight for rect elements
+                if (hoveredSnapId === el.id && !selectedIds.includes(el.id)) {
+                    const hpad = screenPad(3);
+                    ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
+                    ctx.strokeStyle = '#ffaa00';
+                    ctx.lineWidth = screenLineWidth(3);
+                    ctx.strokeRect(x - hpad, y - hpad, w + hpad * 2, h + hpad * 2);
+                    ctx.setLineDash([]);
+                }
                 ctx.restore();
                 ctx.fillStyle = '#333';
                 ctx.font = `${9/viewport.scale}px sans-serif`;
@@ -5367,6 +5567,85 @@ kbd {
                     ctx.fillText(`📁${el.layer}`, x + 2, y + 36);
                 }
             });
+
+            // ---- Overlap cues: magenta dashed ring + badge on stacked elements ----
+            if (overlappingIds.size > 0) {
+                ctx.save();
+                visibleEls.forEach(el => {
+                    if (!overlappingIds.has(el.id)) return;
+                    let bx, by, bw, bh;
+                    if (el.isLine && el.p1 && el.p2) {
+                        const thk = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(el) : 8);
+                        const minx = Math.min(el.p1.x, el.p2.x), maxx = Math.max(el.p1.x, el.p2.x);
+                        const miny = Math.min(el.p1.y, el.p2.y), maxy = Math.max(el.p1.y, el.p2.y);
+                        const pad = thk / 2 + screenPad(4);
+                        bx = minx - pad; by = miny - pad;
+                        bw = (maxx - minx) + pad * 2; bh = (maxy - miny) + pad * 2;
+                    } else {
+                        const pad = screenPad(4);
+                        bx = el.x - pad; by = el.y - pad;
+                        bw = (el.w || 0) + pad * 2; bh = (el.h || 0) + pad * 2;
+                    }
+                    ctx.setLineDash([7 / viewport.scale, 5 / viewport.scale]);
+                    ctx.strokeStyle = selectedIds.includes(el.id) ? '#B8863B' : '#e11d48';
+                    ctx.lineWidth = screenLineWidth(selectedIds.includes(el.id) ? 2.5 : 1.75);
+                    ctx.strokeRect(bx, by, bw, bh);
+                    ctx.setLineDash([]);
+                    // Small "stack" badge
+                    const badge = '⧉';
+                    ctx.font = `bold ${11 / viewport.scale}px sans-serif`;
+                    ctx.fillStyle = '#e11d48';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(badge, bx + 2 / viewport.scale, by + 2 / viewport.scale);
+                });
+                ctx.restore();
+            }
+
+            // ---- Hover name/type label for element under cursor (esp. overlaps) ----
+            if (hoverLabelWorld && overlapHitIds.length > 0) {
+                ctx.save();
+                const lines = overlapHitIds.map((id, idx) => {
+                    const el = elements.find(e => e.id === id);
+                    if (!el) return null;
+                    const mark = (selectedIds.includes(id) ? '● ' : (idx === overlapCycleIndex ? '→ ' : '  '));
+                    const typeName = (el.type || 'element').charAt(0).toUpperCase() + (el.type || '').slice(1);
+                    return mark + (el.label || typeName) + ' · ' + typeName;
+                }).filter(Boolean);
+                if (lines.length) {
+                    const fontPx = 11 / viewport.scale;
+                    ctx.font = `600 ${fontPx}px Inter, system-ui, sans-serif`;
+                    let maxW = 0;
+                    lines.forEach(t => { maxW = Math.max(maxW, ctx.measureText(t).width); });
+                    const pad = 6 / viewport.scale;
+                    const lineH = 14 / viewport.scale;
+                    const boxW = maxW + pad * 2;
+                    const boxH = lines.length * lineH + pad * 2;
+                    const lx = hoverLabelWorld.x + 12 / viewport.scale;
+                    const ly = hoverLabelWorld.y - boxH - 8 / viewport.scale;
+                    ctx.fillStyle = 'rgba(28, 25, 23, 0.88)';
+                    ctx.strokeStyle = overlapHitIds.length > 1 ? '#e11d48' : '#B8863B';
+                    ctx.lineWidth = screenLineWidth(1.25);
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(lx, ly, boxW, boxH, 4 / viewport.scale);
+                    else ctx.rect(lx, ly, boxW, boxH);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#fafaf9';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    lines.forEach((t, i) => {
+                        ctx.fillStyle = t.startsWith('●') || t.startsWith('→') ? '#fbbf24' : '#fafaf9';
+                        ctx.fillText(t, lx + pad, ly + pad + i * lineH);
+                    });
+                    if (lines.length > 1) {
+                        ctx.fillStyle = '#fda4af';
+                        ctx.font = `${9 / viewport.scale}px sans-serif`;
+                        ctx.fillText('Ctrl+click to cycle', lx + pad, ly + boxH + 2 / viewport.scale);
+                    }
+                }
+                ctx.restore();
+            }
 
             // ---- Measure points (Bluebeam-style distance) ----
             if (measurePoints.length > 0 || (currentTool === 'measure' && measurePreview)) {
@@ -5485,6 +5764,27 @@ kbd {
                         ctx.fillText('2', p2.x, p2.y);
                     }
                 }
+                ctx.restore();
+            }
+
+            // ---- CAD object-snap marker (crosshair on snapped geometry) ----
+            if (snapCursorPoint && hoveredSnapId) {
+                ctx.save();
+                const sp = snapCursorPoint;
+                const r = 6 / viewport.scale;
+                ctx.strokeStyle = '#ffaa00';
+                ctx.fillStyle = 'rgba(255, 170, 0, 0.35)';
+                ctx.lineWidth = screenLineWidth(1.5);
+                ctx.beginPath();
+                ctx.arc(sp.x, sp.y, r, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(sp.x - r * 1.6, sp.y);
+                ctx.lineTo(sp.x + r * 1.6, sp.y);
+                ctx.moveTo(sp.x, sp.y - r * 1.6);
+                ctx.lineTo(sp.x, sp.y + r * 1.6);
+                ctx.stroke();
                 ctx.restore();
             }
 
@@ -5735,6 +6035,10 @@ kbd {
                 const userZ = (typeof el.zHeight === 'number' && isFinite(el.zHeight) && el.zHeight > 0)
                     ? el.zHeight : null;
                 let hM = userZ != null ? userZ : 0.5;
+                // Doors / windows / openings: height is clear opening height (m), not wall height
+                if (el.type === 'door' || el.type === 'window' || el.type === 'opening') {
+                    hM = getOpeningHeightM(el);
+                }
                 let wallAngle = 0;
                 if (el.type === 'wall') {
                     // Prefer explicit thickness (m). Fallback: thinner plan side in metres.
@@ -5788,7 +6092,9 @@ kbd {
                     cz = du(el.y + (el.h || 10) / 2);
                 }
                 if (isDed) {
-                    hM = (typeof el.zHeight === 'number' && el.zHeight > 0) ? el.zHeight : 2.1;
+                    // Opening height + sill above FFL (do not force openings to floor)
+                    hM = getOpeningHeightM(el);
+                    const sillM = getOpeningSillM(el);
                     const openWM = Math.max(0.15, wM);
                     const openDM = Math.max(0.15, dM);
                     const hostWall = elements.find(w =>
@@ -5817,7 +6123,8 @@ kbd {
                         side: THREE.DoubleSide,
                     });
                     const mesh = new THREE.Mesh(geo, mat);
-                    const baseY = hM / 2;
+                    // BoxGeometry is centered on Y → place mid-height at sill + h/2
+                    const baseY = sillM + hM / 2;
                     mesh.position.set(cx, baseY, cz);
                     mesh.userData.elementId = el.id;
                     mesh.renderOrder = 2;
@@ -5875,7 +6182,7 @@ kbd {
                     const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true,
                     depthTest: false });
                     const sprite = new THREE.Sprite(spriteMat);
-                    sprite.position.set(cx, hM + 0.5, cz);
+                    sprite.position.set(cx, sillM + hM + 0.5, cz);
                     sprite.scale.set(2.2, 0.7, 1);
                     sprite.renderOrder = 5;
                     scene.add(sprite);
@@ -5884,7 +6191,7 @@ kbd {
                     maxX = Math.max(maxX, cx + boxW / 2);
                     minZ = Math.min(minZ, cz - boxD / 2);
                     maxZ = Math.max(maxZ, cz + boxD / 2);
-                    maxH = Math.max(maxH, hM + 0.5);
+                    maxH = Math.max(maxH, sillM + hM + 0.5);
                     return;
                 }
                 const built = createThreeGeometryForElement(el, wM, dM, hM, wallAngle);
@@ -5921,8 +6228,8 @@ kbd {
                             posY = Math.max(0, storeyH - hM);
                         }
                     } else if (el.type === 'door' || el.type === 'window' || el.isDeduction || el.type === 'cutout' || el.type === 'opening') {
-                        const sill = (typeof el.sillHeight === 'number' && el.sillHeight >= 0) ? el.sillHeight : (el.type === 'window' ? 0.9 : 0);
-                        posY = sill;
+                        // Bottom of geometry at sill (above FFL) — preserves high-level / ventilation windows
+                        posY = getOpeningSillM(el);
                     } else {
                         posY = 0;
                     }
@@ -5941,8 +6248,8 @@ kbd {
                             baseY = Math.max(hM / 2, storeyH - hM / 2);
                         }
                     } else if (el.type === 'door' || el.type === 'window' || el.isDeduction || el.type === 'cutout' || el.type === 'opening') {
-                        const sill = (typeof el.sillHeight === 'number' && el.sillHeight >= 0) ? el.sillHeight : (el.type === 'window' ? 0.9 : 0);
-                        baseY = sill + hM / 2;
+                        // Center of box at sill + half opening height
+                        baseY = getOpeningSillM(el) + hM / 2;
                     }
                     posY = baseY;
                 }
@@ -6059,6 +6366,23 @@ kbd {
                 net = 0,
                 lengthM = 0,
                 unit = 'm²';
+            // Walls: openings + columns in wall (collectWallDeductions)
+            if (el.type === 'wall') {
+                if (el.isLine && el.p1 && el.p2) {
+                    lengthM = (el.length != null ? el.length : Math.hypot(el.p2.x - el.p1.x, el.p2.y - el.p1.y)) * cf;
+                } else {
+                    lengthM = Math.max(el.w || 0, el.h || 0) * cf;
+                }
+                const face = lengthM * (el.zHeight || 3);
+                const deds = collectWallDeductions(el);
+                let ded = 0;
+                deds.forEach(d => { ded += d.deductM2; });
+                gross = face;
+                cut = ded;
+                net = Math.max(0, face - ded);
+                unit = 'm²';
+                return { gross, cut, net, lengthM, unit, cutoutCount: deds.length, deductions: deds };
+            }
             if (el.isLine && el.p1 && el.p2) {
                 lengthM = (el.length != null ? el.length : Math.hypot(el.p2.x - el.p1.x, el.p2.y - el.p1.y)) * cf;
                 const face = lengthM * (el.zHeight || 3);
@@ -6265,8 +6589,59 @@ kbd {
                     <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-color);padding-top:4px;"><span>Net</span><span class="total">${m.net.toFixed(3)} ${m.unit}</span></div>
                 </div></div>`;
 
+            // Wall: Add Deduction + list openings & columns deducted from this wall
+            if (el.type === 'wall' && !isConfirmed) {
+                html += `<div class="prop-group"><label>Wall deductions</label>
+                    <p style="font-size:11px;color:var(--text-secondary);margin:0 0 8px;line-height:1.4;">
+                        Columns inside the wall are auto-deducted from net face area. Draw openings or extra deduction regions without changing the wall boundary.
+                    </p>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                        <button type="button" id="prop-add-deduction" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--border-color);background:var(--bg-hover);cursor:pointer;color:var(--text-primary);">
+                            <i class="fas fa-cut" style="color:#FFD700;"></i> Add Deduction
+                        </button>
+                        <button type="button" id="prop-add-deduction-line" style="font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--border-color);background:var(--bg-hover);cursor:pointer;color:var(--text-primary);">
+                            <i class="fas fa-slash" style="color:#FFD700;"></i> Deduction along wall
+                        </button>
+                    </div>
+                </div>`;
+            }
+
             // List deductions on this wall/beam with editable opening height
             if (['wall', 'beam', 'slab', 'column'].includes(el.type) && m.cutoutCount > 0) {
+                if (el.type === 'wall' && m.deductions && m.deductions.length) {
+                    html += `<div class="prop-group"><label>Deductions on this wall (${m.deductions.length})</label>`;
+                    m.deductions.forEach(d => {
+                        const o = d.source;
+                        const kindLabel = d.kind === 'column' ? 'column' : (o.openingType || o.type || 'opening');
+                        html += `<div class="deduction-card" data-ded-id="${o.id}" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;padding:8px;margin-bottom:6px;">
+                            <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:var(--danger);">${escapeHtml(d.label)}
+                                <span style="font-weight:400;color:var(--text-secondary);text-transform:capitalize;">(${escapeHtml(kindLabel)})</span>
+                            </div>
+                            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">
+                                ${d.openWidthM.toFixed(3)} m × ${d.openHeightM.toFixed(3)} m = <strong style="color:var(--danger);">−${d.deductM2.toFixed(3)} m²</strong>
+                            </div>`;
+                        if (d.kind === 'opening') {
+                            html += `<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+                                <span style="font-size:10px;color:var(--text-secondary);width:48px;">Height</span>
+                                <input type="number" class="prop-ded-height" data-id="${o.id}" value="${(o.zHeight || d.openHeightM).toFixed(3)}" step="0.01" min="0.01" ${isConfirmed?'disabled':''}
+                                    style="flex:1;background:var(--input-bg);border:1px solid var(--border-color);color:var(--text-primary);padding:3px 6px;border-radius:3px;font-size:12px;" />
+                                <span style="font-size:10px;color:var(--text-secondary);">m</span>
+                            </div>
+                            <button type="button" class="prop-ded-delete" data-id="${o.id}" ${isConfirmed?'disabled':''}
+                                style="margin-top:4px;font-size:11px;color:var(--danger);background:transparent;padding:2px 0;cursor:pointer;">
+                                <i class="fas fa-trash"></i> Remove deduction
+                            </button>`;
+                        } else {
+                            html += `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">Column kept as separate volume · auto-deducted from wall</div>
+                            <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                <input type="checkbox" class="prop-col-skip-ded" data-id="${o.id}" ${o.skipWallDeduction ? '' : 'checked'} ${isConfirmed?'disabled':''} />
+                                Deduct this column from wall net area
+                            </label>`;
+                        }
+                        html += `</div>`;
+                    });
+                    html += `</div>`;
+                } else if (el.type !== 'wall') {
                 const openingsAll = elements.filter(e =>
                     e.type === 'door' || e.type === 'window' || e.type === 'opening' || e.isDeduction || e.type === 'cutout'
                 );
@@ -6309,6 +6684,7 @@ kbd {
                     });
                     html += `</div>`;
                 }
+                } // else if (el.type !== 'wall')
             }
 
             if (m.lengthM > 0) {
@@ -6431,6 +6807,19 @@ kbd {
                     inp.addEventListener('input', applyLive);
                 }
             };
+            container.querySelectorAll('.prop-ded-height').forEach(inp => {
+                inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); });
+                const apply = () => {
+                    const dedId = parseInt(inp.dataset.id, 10);
+                    const ded = elements.find(e => e.id === dedId);
+                    if (!ded) return;
+                    saveState();
+                    ded.zHeight = Math.max(0.01, parseFloat(inp.value) || 0.1);
+                    markElementEdited(ded);
+                    renderAll();
+                };
+                inp.addEventListener('change', apply);
+            });
             container.querySelectorAll('[id^="prop-ded-h-"]').forEach(inp => {
                 inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); });
                 const applyDedLive = () => {
@@ -6456,7 +6845,7 @@ kbd {
             });
             container.querySelectorAll('.prop-ded-delete').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    const dedId = parseInt(btn.dataset.dedId, 10);
+                    const dedId = parseInt(btn.dataset.dedId || btn.dataset.id, 10);
                     if (!dedId) return;
                     saveState();
                     elements.forEach(e => {
@@ -6470,6 +6859,44 @@ kbd {
                     renderAll();
                 });
             });
+            container.querySelectorAll('.prop-col-skip-ded').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const colId = parseInt(cb.dataset.id, 10);
+                    const col = elements.find(e => e.id === colId);
+                    if (!col) return;
+                    saveState();
+                    col.skipWallDeduction = !cb.checked;
+                    markElementEdited(col);
+                    renderAll();
+                });
+            });
+            const startWallDeduction = (mode) => {
+                pendingDeductionParentId = el.id;
+                deductionParentId = el.id;
+                hoveredParentId = el.id;
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
+                if (mode === 'line') {
+                    currentTool = 'deduction_wall';
+                    const btn = document.getElementById('toolDeductionWall');
+                    if (btn) btn.classList.add('tool-active');
+                    document.getElementById('statusMode').textContent =
+                        `Deduction on ${el.label}: click along the wall (snap) · Enter to finish`;
+                } else {
+                    currentTool = 'cutout';
+                    const btn = document.getElementById('toolCutout');
+                    if (btn) btn.classList.add('tool-active');
+                    document.getElementById('statusMode').textContent =
+                        `Deduction on ${el.label}: click polygon around column/opening · Enter to finish`;
+                }
+                document.getElementById('canvas2d').style.cursor = 'crosshair';
+                polygonPoints = [];
+                deductionLinePoints = [];
+                renderCanvas2D();
+            };
+            const addDedBtn = document.getElementById('prop-add-deduction');
+            if (addDedBtn) addDedBtn.addEventListener('click', () => startWallDeduction('poly'));
+            const addDedLineBtn = document.getElementById('prop-add-deduction-line');
+            if (addDedLineBtn) addDedLineBtn.addEventListener('click', () => startWallDeduction('line'));
             attachChange('prop-label', (inp) => { el.label = String(inp.value || el.label || '').slice(0, 200); });
             attachChange('prop-opening-type', (inp) => {
                 const typeNames = { door: 'Door', window: 'Window', opening: 'Opening' };
@@ -6664,6 +7091,115 @@ kbd {
             return hits;
         }
 
+        /**
+         * True if a column (or other rect) intersects a wall in plan.
+         * Line walls use thickness buffer; rect walls use AABB overlap.
+         */
+        function elementIntersectsWall(wall, other) {
+            if (!wall || !other || wall.id === other.id || other.hidden) return false;
+            if (other.skipWallDeduction) return false;
+            if (wall.isLine && wall.p1 && wall.p2) {
+                const thk = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(wall) : 8) / 2 + 2;
+                let pts = [];
+                if (other.vertices && other.vertices.length >= 3) {
+                    pts = other.vertices.map(v => ({ x: other.x + v.x, y: other.y + v.y }));
+                } else {
+                    pts = [
+                        { x: other.x, y: other.y },
+                        { x: other.x + (other.w || 0), y: other.y },
+                        { x: other.x + (other.w || 0), y: other.y + (other.h || 0) },
+                        { x: other.x, y: other.y + (other.h || 0) },
+                        { x: other.x + (other.w || 0) / 2, y: other.y + (other.h || 0) / 2 }
+                    ];
+                }
+                for (const p of pts) {
+                    const np = nearestPointOnSegment(p.x, p.y, wall.p1.x, wall.p1.y, wall.p2.x, wall.p2.y);
+                    if (Math.hypot(p.x - np.x, p.y - np.y) <= thk) return true;
+                }
+                if (other.w != null && other.h != null) {
+                    const inside = (px, py) =>
+                        px >= other.x && px <= other.x + other.w &&
+                        py >= other.y && py <= other.y + other.h;
+                    if (inside(wall.p1.x, wall.p1.y) || inside(wall.p2.x, wall.p2.y)) return true;
+                }
+                return false;
+            }
+            return overlapArea(wall, other) > 0;
+        }
+
+        /**
+         * Deduction sources for a wall: openings/cutouts + columns in the wall.
+         * Columns remain separate measurable elements; only their face contribution
+         * is subtracted from the wall net area (wall geometry is not deleted).
+         */
+        function collectWallDeductions(wall) {
+            const cf = calibrationFactor || 1;
+            const wallH = (wall.zHeight != null && wall.zHeight > 0) ? wall.zHeight : 3.0;
+            const list = [];
+            const openingsAll = elements.filter(e =>
+                !e.hidden && (e.type === 'door' || e.type === 'window' || e.type === 'opening' ||
+                    e.isDeduction || e.type === 'cutout')
+            );
+            getDeductionsOverlapping(wall, openingsAll).forEach(({ opening: o }) => {
+                let openWidthDraw;
+                if (wall.isLine) {
+                    openWidthDraw = cutoutWidthAlongLine(wall, o);
+                    if (openWidthDraw < 1e-6) openWidthDraw = Math.max(o.w || 0, o.h || 0);
+                } else {
+                    openWidthDraw = Math.max(o.w || 0, o.h || 0);
+                }
+                const openWidthM = openWidthDraw * cf;
+                const openHeightM = Math.max(0.01,
+                    (typeof getOpeningHeightM === 'function' ? getOpeningHeightM(o) : null) || o.zHeight || 2.1);
+                const hDed = Math.min(openHeightM, wallH);
+                const deductM2 = openWidthM * hDed;
+                list.push({
+                    source: o,
+                    kind: 'opening',
+                    openWidthDraw,
+                    openWidthM,
+                    openHeightM: hDed,
+                    deductM2,
+                    label: o.label || o.type || 'Opening'
+                });
+            });
+            elements.forEach(col => {
+                if (col.hidden || col.type !== 'column') return;
+                if (col.skipWallDeduction) return;
+                const linked = col.parentId === wall.id ||
+                    (Array.isArray(col.deductFromWallIds) && col.deductFromWallIds.indexOf(wall.id) >= 0);
+                if (!linked && !elementIntersectsWall(wall, col)) return;
+                let openWidthDraw;
+                if (wall.isLine) {
+                    openWidthDraw = cutoutWidthAlongLine(wall, col);
+                    if (openWidthDraw < 1e-6) {
+                        openWidthDraw = Math.min(col.w || 0, col.h || 0) || Math.max(col.w || 0, col.h || 0);
+                    }
+                } else {
+                    const ox = Math.max(0, Math.min(wall.x + wall.w, col.x + col.w) - Math.max(wall.x, col.x));
+                    const oy = Math.max(0, Math.min(wall.y + wall.h, col.y + col.h) - Math.max(wall.y, col.y));
+                    openWidthDraw = Math.max(ox, oy);
+                }
+                const openWidthM = openWidthDraw * cf;
+                const colH = (col.zHeight != null && col.zHeight > 0) ? col.zHeight : wallH;
+                const hDed = Math.min(colH, wallH);
+                const deductM2 = openWidthM * hDed;
+                list.push({
+                    source: col,
+                    kind: 'column',
+                    openWidthDraw,
+                    openWidthM,
+                    openHeightM: hDed,
+                    deductM2,
+                    label: col.label || 'Column'
+                });
+            });
+            return list;
+        }
+
+        /** Parent wall id when user starts Add Deduction from Properties */
+        let pendingDeductionParentId = null;
+
         function cutoutWidthAlongLine(lineEl, cutout) {
             if (!lineEl.p1 || !lineEl.p2) {
                 return Math.max(cutout.w, cutout.h);
@@ -6759,22 +7295,14 @@ kbd {
             walls.forEach(w => {
                 const lengthM = (w.isLine && w.length != null ? w.length : Math.max(w.w, w.h)) * cf;
                 const gross = lengthM * (w.zHeight || 3);
-                const hits = getDeductionsOverlapping(w, openingsAll);
+                // Openings + columns occupying the wall (wall geometry kept intact)
+                const hits = collectWallDeductions(w);
                 let deduction = 0;
                 let dedRemarks = [];
-                hits.forEach(({ opening: o }) => {
-                    let openWidthDraw;
-                    if (w.isLine) {
-                        openWidthDraw = cutoutWidthAlongLine(w, o);
-                        if (openWidthDraw < 1e-6) openWidthDraw = Math.max(o.w, o.h);
-                    } else {
-                        openWidthDraw = Math.max(o.w, o.h);
-                    }
-                    const openWidthM = openWidthDraw * cf;
-                    const openHeightM = Math.max(0.01, o.zHeight || 2.1);
-                    const deductM2 = openWidthM * openHeightM;
-                    deduction += deductM2;
-                    dedRemarks.push(`${o.label}(${openWidthM.toFixed(2)}×${openHeightM.toFixed(2)}=${deductM2.toFixed(2)}m²)`);
+                hits.forEach(d => {
+                    deduction += d.deductM2;
+                    const tag = d.kind === 'column' ? 'Col' : 'Opn';
+                    dedRemarks.push(`${tag}:${d.label}(${d.openWidthM.toFixed(2)}×${d.openHeightM.toFixed(2)}=${d.deductM2.toFixed(2)}m²)`);
                 });
                 const netArea = Math.max(0, gross - deduction);
                 const vol = netArea * (w.thickness || DEFAULT_WALL_THICKNESS_M);
@@ -6785,7 +7313,7 @@ kbd {
                     totalBrickQty += Number(q.qty) || 0;
                 }
                 totalPlasterArea += netArea;
-                const dedNote = dedRemarks.length ? ` Openings: ${dedRemarks.join(', ')}` : '';
+                const dedNote = dedRemarks.length ? ` Deductions: ${dedRemarks.join(', ')}` : '';
                 rows.push({
                     material: matName,
                     element: w.label,
@@ -7284,7 +7812,8 @@ kbd {
                 }
 
                 if (currentTool === 'measure' && e.button === 0) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     if (measurePoints.length >= 2) {
                         // Start a new measurement on next click
                         measurePoints = [];
@@ -7358,7 +7887,8 @@ kbd {
 
                 // ---- Polygon tools (slab, cutout) ----
                 if (['slab', 'cutout', 'column'].includes(currentTool) && e.button === 0) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     polygonPoints.push(snapped);
                     polygonTempLine = null;
                     polygonElementType = currentTool;
@@ -7372,7 +7902,8 @@ kbd {
 
                 // ---- Wall / Beam continuous polyline ----
                 if ((currentTool === 'wall' || currentTool === 'beam') && e.button === 0) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     polygonPoints.push(snapped);
                     continuousTempPreview = null;
                     const n = polygonPoints.length;
@@ -7477,26 +8008,38 @@ kbd {
                             }
                         }
                     }
+                    // Collect ALL hits so overlapping elements can be cycled (Ctrl/Cmd+click)
+                    const hitStack = hitTestAllElements(world);
+                    overlapHitIds = hitStack.map(el => el.id);
                     let foundEl = null;
-                    for (let i = elements.length - 1; i >= 0; i--) {
-                        const el = elements[i];
-                        if (el.hidden) continue;
-                        if (el.isLine && el.p1 && el.p2) {
-                            const ax = el.p1.x, ay = el.p1.y, bx = el.p2.x, by = el.p2.y;
-                            const abx = bx - ax, aby = by - ay;
-                            const len2 = abx * abx + aby * aby || 1;
-                            let t = ((world.x - ax) * abx + (world.y - ay) * aby) / len2;
-                            t = Math.max(0, Math.min(1, t));
-                            const px = ax + t * abx, py = ay + t * aby;
-                            const thk = getLineThicknessDraw(el) / 2 + 6 / viewport.scale;
-                            if (Math.hypot(world.x - px, world.y - py) <= thk) {
-                                foundEl = el;
-                                break;
+                    if (hitStack.length > 0) {
+                        const key = overlapHitIds.join(',');
+                        if (e.ctrlKey || e.metaKey) {
+                            // Cycle through stack
+                            if (key !== lastOverlapKey) {
+                                overlapCycleIndex = 0;
+                                lastOverlapKey = key;
+                            } else {
+                                overlapCycleIndex = (overlapCycleIndex + 1) % hitStack.length;
                             }
-                        } else if (world.x >= el.x && world.x <= el.x + el.w && world.y >= el.y && world.y <= el.y + el.h) {
-                            foundEl = el;
-                            break;
+                            foundEl = hitStack[overlapCycleIndex];
+                            if (hitStack.length > 1) {
+                                const statusMode = document.getElementById('statusMode');
+                                if (statusMode) {
+                                    statusMode.textContent =
+                                        `Overlap ${overlapCycleIndex + 1}/${hitStack.length}: ${foundEl.label || foundEl.type} (Ctrl+click to cycle)`;
+                                }
+                            }
+                        } else {
+                            // Prefer currently selected if still under cursor, else topmost
+                            const preferred = hitStack.find(el => selectedIds.includes(el.id));
+                            foundEl = preferred || hitStack[0];
+                            overlapCycleIndex = Math.max(0, hitStack.indexOf(foundEl));
+                            lastOverlapKey = key;
                         }
+                    } else {
+                        lastOverlapKey = '';
+                        overlapCycleIndex = 0;
                     }
                     if (foundEl) {
                         if (!e.shiftKey) {
@@ -7605,6 +8148,42 @@ kbd {
                     }
                 }
 
+                // ---- CAD-style object snap + overlap hover labels ----
+                // Active for select and drawing tools (not pan/calibrate-only)
+                {
+                    const snapTools = ['select', 'wall', 'beam', 'slab', 'column', 'cutout',
+                        'measure', 'door', 'window', 'deduction_wall', 'move', null, ''];
+                    const toolOk = !currentTool || snapTools.indexOf(currentTool) >= 0;
+                    if (toolOk && !e.altKey) {
+                        const hit = findNearestElementSnap(world, { tolerancePx: SNAP_TOLERANCE_PX });
+                        const prevId = hoveredSnapId;
+                        const prevHits = overlapHitIds.join(',');
+                        if (hit) {
+                            hoveredSnapId = hit.el.id;
+                            snapCursorPoint = hit.point;
+                            if (currentTool === 'select' || !currentTool || currentTool === 'move') {
+                                canvas.style.cursor = 'pointer';
+                            }
+                        } else {
+                            hoveredSnapId = null;
+                            snapCursorPoint = null;
+                        }
+                        // Full stack under cursor for overlap UI (select tool)
+                        const stack = hitTestAllElements(world);
+                        overlapHitIds = stack.map(el => el.id);
+                        hoverLabelWorld = stack.length ? { x: world.x, y: world.y } : null;
+                        if (prevId !== hoveredSnapId || prevHits !== overlapHitIds.join(',')) {
+                            renderCanvas2D();
+                        }
+                    } else if (hoveredSnapId || hoverLabelWorld) {
+                        hoveredSnapId = null;
+                        snapCursorPoint = null;
+                        hoverLabelWorld = null;
+                        overlapHitIds = [];
+                        renderCanvas2D();
+                    }
+                }
+
                 if (currentTool === 'calibrate' && calibratePoints.length === 1) {
                     calibratePreview = { x: world.x, y: world.y };
                     const p1 = calibratePoints[0];
@@ -7617,7 +8196,8 @@ kbd {
 
                 // Measure live preview (Bluebeam-style)
                 if (currentTool === 'measure' && measurePoints.length === 1) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     measurePreview = { x: snapped.x, y: snapped.y };
                     const p1 = measurePoints[0];
                     const dist = toMeters(Math.hypot(snapped.x - p1.x, snapped.y - p1.y));
@@ -7630,21 +8210,24 @@ kbd {
 
                 // Continuous wall / beam live preview
                 if ((currentTool === 'wall' || currentTool === 'beam') && polygonPoints.length > 0) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     const last = polygonPoints[polygonPoints.length - 1];
                     continuousTempPreview = { x1: last.x, y1: last.y, x2: snapped.x, y2: snapped.y };
                     const dist = Math.hypot(snapped.x - last.x, snapped.y - last.y);
                     const distM = toMeters(dist);
                     const n = polygonPoints.length;
+                    const snapHint = snapCursorPoint && !e.altKey ? ' · snapped' : '';
                     document.getElementById('statusMode').textContent =
-                        `${currentTool}: ${n} pts · next ${distM.toFixed(2)} m · Enter/Done to finish`;
+                        `${currentTool}: ${n} pts · next ${distM.toFixed(2)} m · Enter/Done to finish${snapHint}`;
                     renderCanvas2D();
                     return;
                 }
 
                 if (['slab', 'cutout', 'column'].includes(currentTool) &&
                     polygonPoints.length > 0 && !isPolygonClosed) {
-                    const snapped = snapPoint(world, e);
+                    let snapped = snapPoint(world, e);
+                    if (snapCursorPoint && !e.altKey) snapped = { x: snapCursorPoint.x, y: snapCursorPoint.y };
                     const last = polygonPoints[polygonPoints.length - 1];
                     polygonTempLine = { x1: last.x, y1: last.y, x2: snapped.x, y2: snapped.y };
                     const dist = Math.hypot(snapped.x - last.x, snapped.y - last.y);
@@ -8006,6 +8589,27 @@ kbd {
             }
         }
 
+        /**
+         * After finishing one element with Enter/Done, keep the same drawing tool
+         * active so the user can immediately start the next element of that type.
+         * Exit only via Esc, Cancel, Select tool, or picking a different tool.
+         */
+        function stayInDrawingTool(tool, readyMessage) {
+            if (!tool) return;
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(b => {
+                const t = b.getAttribute('data-tool');
+                b.classList.toggle('tool-active', t === tool);
+            });
+            const canvas = document.getElementById('canvas2d');
+            if (canvas) canvas.style.cursor = 'crosshair';
+            const mode = document.getElementById('statusMode');
+            if (mode) {
+                mode.textContent = readyMessage ||
+                    (tool.charAt(0).toUpperCase() + tool.slice(1) + ': click to start next · Esc to exit tool');
+            }
+        }
+
         function completeWallBeamLine() {
 
             if (polygonPoints.length < 2) {
@@ -8033,10 +8637,9 @@ kbd {
                 return;
             }
             selectedIds = newIds;
-            document.getElementById('statusMode').textContent = 'Select';
-            currentTool = null;
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
-            document.getElementById('canvas2d').style.cursor = 'default';
+            stayInDrawingTool(type,
+                type.charAt(0).toUpperCase() + type.slice(1) +
+                ' saved · click to start next ' + type + ' · Enter finishes each · Esc exits tool');
             renderAll();
             if (type === 'beam') {
                 setTimeout(function () { promptElevationAfterCreate(newIds); }, 50);
@@ -8051,7 +8654,10 @@ kbd {
             }
             // Find parent wall under the first segment midpoint (or stored parent)
             let parent = null;
-            if (deductionParentId) {
+            if (pendingDeductionParentId) {
+                parent = elements.find(el => el.id === pendingDeductionParentId);
+            }
+            if (!parent && deductionParentId) {
                 parent = elements.find(el => el.id === deductionParentId);
             }
             if (!parent) {
@@ -8129,17 +8735,17 @@ kbd {
                 }
             }
             deductionLinePoints = [];
-            deductionParentId = null;
+            // Keep parent for continuous deductions on the same wall when tool stays active
             continuousTempPreview = null;
             if (newIds.length === 0) {
                 alert('Could not create deduction segments. Draw the deduction line along a wall (at least two points), then press Enter / Done.');
                 return;
             }
             selectedIds = [parent.id];
-            document.getElementById('statusMode').textContent = `Deduction(s) added on ${parent.label}`;
-            currentTool = null;
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
-            document.getElementById('canvas2d').style.cursor = 'default';
+            if (!pendingDeductionParentId) pendingDeductionParentId = parent.id;
+            if (!deductionParentId) deductionParentId = parent.id;
+            stayInDrawingTool('deduction_wall',
+                `Deduction saved on ${parent.label} · click to start next · Enter finishes · Esc exits tool`);
             renderAll();
         }
 
@@ -8151,33 +8757,37 @@ kbd {
                 const el = createPolygonElement(type, pts);
                 if (el) {
                     if (type === 'cutout') {
-                        // try to find parent
+                        // Prefer explicit parent from "Add Deduction" on a wall
+                        let parent = pendingDeductionParentId
+                            ? elements.find(e => e.id === pendingDeductionParentId)
+                            : null;
                         const cx = (pts.reduce((s, p) => s + p.x, 0) / pts.length);
                         const cy = (pts.reduce((s, p) => s + p.y, 0) / pts.length);
-                        let parent = null;
-                        for (let i = elements.length - 1; i >= 0; i--) {
-                            const e = elements[i];
-                            if (e.hidden || e.isDeduction) continue;
-                            if (e.isLine && e.p1 && e.p2) {
-                                const ax = e.p1.x,
-                                    ay = e.p1.y,
-                                    bx = e.p2.x,
-                                    by = e.p2.y;
-                                const abx = bx - ax,
-                                    aby = by - ay;
-                                const len2 = abx * abx + aby * aby || 1;
-                                let t = ((cx - ax) * abx + (cy - ay) * aby) / len2;
-                                t = Math.max(0, Math.min(1, t));
-                                const px = ax + t * abx,
-                                    py = ay + t * aby;
-                                const thk = (e.isLine ? getLineThicknessDraw(e) : toDrawing(e.thickness || DEFAULT_WALL_THICKNESS_M)) / 2 + 10 / viewport.scale;
-                                if (Math.hypot(cx - px, cy - py) <= thk) {
+                        if (!parent) {
+                            for (let i = elements.length - 1; i >= 0; i--) {
+                                const e = elements[i];
+                                if (e.hidden || e.isDeduction) continue;
+                                if (e.isLine && e.p1 && e.p2) {
+                                    const ax = e.p1.x,
+                                        ay = e.p1.y,
+                                        bx = e.p2.x,
+                                        by = e.p2.y;
+                                    const abx = bx - ax,
+                                        aby = by - ay;
+                                    const len2 = abx * abx + aby * aby || 1;
+                                    let t = ((cx - ax) * abx + (cy - ay) * aby) / len2;
+                                    t = Math.max(0, Math.min(1, t));
+                                    const px = ax + t * abx,
+                                        py = ay + t * aby;
+                                    const thk = (e.isLine ? getLineThicknessDraw(e) : toDrawing(e.thickness || DEFAULT_WALL_THICKNESS_M)) / 2 + 10 / viewport.scale;
+                                    if (Math.hypot(cx - px, cy - py) <= thk) {
+                                        parent = e;
+                                        break;
+                                    }
+                                } else if (cx >= e.x && cx <= e.x + e.w && cy >= e.y && cy <= e.y + e.h) {
                                     parent = e;
                                     break;
                                 }
-                            } else if (cx >= e.x && cx <= e.x + e.w && cy >= e.y && cy <= e.y + e.h) {
-                                parent = e;
-                                break;
                             }
                         }
                         if (parent) {
@@ -8221,15 +8831,15 @@ kbd {
                             parent.cutouts.push(el.id);
                             el.label = `Opening → ${parent.label}`;
                             addElement(el);
+                            // Keep parent so next cutout can attach to same wall when tool stays active
+                            if (!pendingDeductionParentId) pendingDeductionParentId = parent.id;
                             polygonPoints = [];
                             polygonTempLine = null;
                             isPolygonClosed = false;
                             polygonElementType = null;
-                            currentTool = null;
-                            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
-                            document.getElementById('statusMode').textContent = `Deduction added on ${parent.label}`;
-                            document.getElementById('canvas2d').style.cursor = 'default';
                             selectedIds = [parent.id];
+                            stayInDrawingTool('cutout',
+                                `Deduction saved on ${parent.label} · click to draw next · Enter finishes · Esc exits tool`);
                             renderAll();
                             return;
                         } else {
@@ -8240,14 +8850,15 @@ kbd {
                         }
                     }
                     addElement(el);
+                    const keepTool = currentTool; // slab | column | cutout
                     polygonPoints = [];
                     polygonTempLine = null;
                     isPolygonClosed = false;
                     polygonElementType = null;
-                    currentTool = null;
-                    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
-                    document.getElementById('statusMode').textContent = 'Select';
-                    document.getElementById('canvas2d').style.cursor = 'default';
+                    selectedIds = [el.id];
+                    stayInDrawingTool(keepTool,
+                        (keepTool.charAt(0).toUpperCase() + keepTool.slice(1)) +
+                        ' saved · click to start next · Enter finishes each · Esc exits tool');
                     renderAll();
                     if (el && (el.type === 'window' || el.type === 'door' || el.type === 'beam')) {
                         setTimeout(function () { promptElevationAfterCreate([el.id]); }, 50);
@@ -8268,6 +8879,7 @@ kbd {
             polygonElementType = null;
             deductionLinePoints = [];
             deductionParentId = null;
+            pendingDeductionParentId = null;
             continuousTempPreview = null;
             editingVertex = null;
             drawStartWorld = null;
@@ -8279,6 +8891,12 @@ kbd {
             calibratePoints = [];
             calibratePreview = null;
             hoveredParentId = null;
+            hoveredSnapId = null;
+            snapCursorPoint = null;
+            hoverLabelWorld = null;
+            overlapHitIds = [];
+            overlapCycleIndex = 0;
+            lastOverlapKey = '';
             const measureLabel = document.getElementById('measureLabel');
             if (measureLabel) measureLabel.style.display = 'none';
             if (currentTool === 'measure') {
