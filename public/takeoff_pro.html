@@ -1968,6 +1968,11 @@ kbd {
             <button id="btnSnapGrid" data-tooltip="Snap to grid (off = exact click)"><i class="fas fa-magnet"></i></button>
             <button id="btnSnapWall" data-tooltip="Grid on/off"><i class="fas fa-th"></i></button>
             <button id="btnToggleElements" data-tooltip="Show / hide measured elements on drawing"><i class="fas fa-layer-group"></i></button>
+            <button id="btnAutoGlue" class="tool-active" data-tooltip="Auto-Glue ON — connect nearby walls/columns within tolerance. Click to switch to Keep Separate."><i class="fas fa-link"></i> Glue</button>
+            <label id="glueTolLabel" title="Connection tolerance (mm)" style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--text-secondary);white-space:nowrap;">
+                <input id="glueToleranceMm" type="number" min="0" max="200" step="1" value="10" style="width:42px;background:var(--input-bg);border:1px solid var(--border-color);color:var(--text-primary);padding:2px 4px;border-radius:4px;font-size:11px;" />
+                mm
+            </label>
         </div>
         <div class="group" id="bgControls" style="display:none;align-items:center;gap:6px;">
             <span id="bgOpacityValue">100%</span>
@@ -2214,7 +2219,17 @@ kbd {
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Calibrate</span><kbd>C</kbd></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Measure</span><kbd>M</kbd></div>
             </div>
-            <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;"><strong>Workflow:</strong> Import drawing → Calibrate scale → Measure distances → Draw walls/slabs/columns → Add deductions → Review live quantities → Export BOQ.</p>
+            <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;"><strong>Workflow:</strong> Import drawing → Calibrate scale → Measure in order below → Review Live Quantities → Export BOQ.</p>
+            <div style="margin-top:10px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;font-size:12px;line-height:1.55;color:var(--text-primary);">
+                <div style="font-weight:600;margin-bottom:6px;">📐 Recommended measurement order</div>
+                <ol style="margin:0;padding-left:18px;color:var(--text-secondary);">
+                    <li><strong>Columns</strong> — measure all columns first (locations &amp; sizes stored).</li>
+                    <li><strong>Walls</strong> — measure walls; column overlaps are auto-deducted using each wall’s own thickness.</li>
+                    <li><strong>Openings</strong> — Deduct Wall/Opening; system uses the parent wall thickness (e.g. 100&nbsp;mm vs 225&nbsp;mm), never a fixed global value.</li>
+                    <li><strong>Slabs</strong> — snap to wall <em>center</em>, <em>edge</em>, or <em>corner</em>; overlaps deduct automatically where applicable.</li>
+                </ol>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);">Tip: hold <kbd>Alt</kbd> while clicking to place a point without object snap. Live Quantities shows Gross · Deduction · Net per element.</div>
+            </div>
             <div class="actions"><button class="primary" id="helpModalOk">Got it</button></div>
         </div>
     </div>
@@ -2969,7 +2984,78 @@ kbd {
         // ---- CAD-style object snap (to existing takeoff element geometry) ----
         let hoveredSnapId = null;
         let snapCursorPoint = null;
+        let snapKind = null; // 'center' | 'edge' | 'endpoint' | 'corner'
         const SNAP_TOLERANCE_PX = 14;
+
+        // ---- Auto-Glue / Keep Separate (user-controlled) ----
+        let autoGlueEnabled = true;
+        let glueToleranceMm = 10; // connection tolerance in millimetres
+
+        function getGlueToleranceDraw() {
+            // mm → metres → drawing units
+            const m = Math.max(0, Number(glueToleranceMm) || 0) / 1000;
+            const cf = (typeof calibrationFactor === 'number' && calibrationFactor > 0) ? calibrationFactor : 1;
+            return m / cf;
+        }
+
+        /**
+         * Snap a world point to the nearest wall/beam endpoint or column corner
+         * within glue tolerance. Returns {x,y} (possibly unchanged).
+         */
+        function applyAutoGluePoint(pt, options) {
+            options = options || {};
+            if (!autoGlueEnabled) return { x: pt.x, y: pt.y };
+            const tol = getGlueToleranceDraw();
+            if (!(tol > 0)) return { x: pt.x, y: pt.y };
+            const skipId = options.skipId;
+            let best = null;
+            let bestD = tol;
+            elements.forEach(function (el) {
+                if (!el || el.hidden || el.id === skipId) return;
+                const candidates = [];
+                if (el.isLine && el.p1 && el.p2) {
+                    candidates.push(el.p1, el.p2);
+                } else if (el.type === 'column' || el.type === 'slab') {
+                    if (el.vertices && el.vertices.length >= 2) {
+                        el.vertices.forEach(function (v) {
+                            candidates.push({ x: el.x + v.x, y: el.y + v.y });
+                        });
+                    } else if (el.w != null && el.h != null) {
+                        candidates.push(
+                            { x: el.x, y: el.y },
+                            { x: el.x + el.w, y: el.y },
+                            { x: el.x + el.w, y: el.y + el.h },
+                            { x: el.x, y: el.y + el.h }
+                        );
+                    }
+                }
+                candidates.forEach(function (c) {
+                    const d = Math.hypot(pt.x - c.x, pt.y - c.y);
+                    if (d <= bestD) {
+                        bestD = d;
+                        best = c;
+                    }
+                });
+            });
+            return best ? { x: best.x, y: best.y } : { x: pt.x, y: pt.y };
+        }
+
+        function applyAutoGluePolyline(pts) {
+            if (!autoGlueEnabled || !pts || !pts.length) return pts;
+            return pts.map(function (p) { return applyAutoGluePoint(p); });
+        }
+
+
+        function formatSnapLabel(kind, el) {
+            if (!kind || !el) return '';
+            const type = (el.type || 'element');
+            const name = type.charAt(0).toUpperCase() + type.slice(1);
+            if (kind === 'center') return 'Snap: ' + name + ' Center';
+            if (kind === 'edge') return 'Snap: ' + name + ' Edge';
+            if (kind === 'endpoint') return 'Snap: ' + name + ' Endpoint';
+            if (kind === 'corner') return 'Snap: ' + name + ' Corner';
+            return 'Snap: ' + name;
+        }
 
         /**
          * Nearest element geometry to a world point within screen-pixel tolerance.
@@ -2980,14 +3066,16 @@ kbd {
             options = options || {};
             const tolWorld = (options.tolerancePx != null ? options.tolerancePx : SNAP_TOLERANCE_PX)
                 / Math.max(viewport.scale || 1, 0.001);
+            // Prefer endpoints slightly so wall corners win over mid-edge when both are near
+            const endpointBonus = tolWorld * 0.35;
             const typeFilter = options.types || null;
             let best = null;
             let bestDist = tolWorld;
 
-            function consider(el, pt, dist) {
+            function consider(el, pt, dist, kind) {
                 if (dist > bestDist) return;
                 bestDist = dist;
-                best = { el: el, point: { x: pt.x, y: pt.y }, dist: dist };
+                best = { el: el, point: { x: pt.x, y: pt.y }, dist: dist, kind: kind || 'edge' };
             }
 
             for (let i = elements.length - 1; i >= 0; i--) {
@@ -2996,20 +3084,58 @@ kbd {
                 if (typeFilter && typeFilter.indexOf(el.type) < 0) continue;
 
                 if (el.isLine && el.p1 && el.p2) {
-                    const np = nearestPointOnSegment(world.x, world.y, el.p1.x, el.p1.y, el.p2.x, el.p2.y);
-                    const d = Math.hypot(world.x - np.x, world.y - np.y);
-                    const thk = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(el) : 0) / 2;
-                    consider(el, np, Math.max(0, d - thk));
+                    const p1 = el.p1, p2 = el.p2;
+                    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const nx = -dy / len, ny = dx / len; // unit perpendicular
+                    const half = (typeof getLineThicknessDraw === 'function' ? getLineThicknessDraw(el) : 0) / 2;
+
+                    // Centerline endpoints + segment (for wall/beam chaining)
+                    const d1 = Math.hypot(world.x - p1.x, world.y - p1.y);
+                    const d2 = Math.hypot(world.x - p2.x, world.y - p2.y);
+                    consider(el, p1, Math.max(0, d1 - endpointBonus), 'endpoint');
+                    consider(el, p2, Math.max(0, d2 - endpointBonus), 'endpoint');
+                    const np = nearestPointOnSegment(world.x, world.y, p1.x, p1.y, p2.x, p2.y);
+                    consider(el, np, Math.hypot(world.x - np.x, world.y - np.y), 'center');
+
+                    // Outer faces + corners (slab boundaries follow wall edges)
+                    if (half > 1e-6) {
+                        const faces = [
+                            [p1.x + nx * half, p1.y + ny * half, p2.x + nx * half, p2.y + ny * half, 'edge'],
+                            [p1.x - nx * half, p1.y - ny * half, p2.x - nx * half, p2.y - ny * half, 'edge'],
+                            [p1.x + nx * half, p1.y + ny * half, p1.x - nx * half, p1.y - ny * half, 'endpoint'],
+                            [p2.x + nx * half, p2.y + ny * half, p2.x - nx * half, p2.y - ny * half, 'endpoint']
+                        ];
+                        for (const [ax, ay, bx, by, kind] of faces) {
+                            const c1 = { x: ax, y: ay }, c2 = { x: bx, y: by };
+                            consider(el, c1, Math.max(0, Math.hypot(world.x - ax, world.y - ay) - endpointBonus), kind === 'endpoint' ? 'corner' : 'edge');
+                            consider(el, c2, Math.max(0, Math.hypot(world.x - bx, world.y - by) - endpointBonus), kind === 'endpoint' ? 'corner' : 'edge');
+                            const fp = nearestPointOnSegment(world.x, world.y, ax, ay, bx, by);
+                            consider(el, fp, Math.hypot(world.x - fp.x, world.y - fp.y), kind);
+                        }
+                    }
                 } else if (el.vertices && el.vertices.length >= 2) {
-                    const pts = el.vertices;
+                    // vertices are stored relative to el.x / el.y — convert to world
+                    const pts = el.vertices.map(v => ({ x: el.x + v.x, y: el.y + v.y }));
                     for (let j = 0; j < pts.length; j++) {
                         const a = pts[j], b = pts[(j + 1) % pts.length];
+                        // Prefer corners
+                        const dCorner = Math.hypot(world.x - a.x, world.y - a.y);
+                        consider(el, a, Math.max(0, dCorner - endpointBonus));
                         const np = nearestPointOnSegment(world.x, world.y, a.x, a.y, b.x, b.y);
                         const d = Math.hypot(world.x - np.x, world.y - np.y);
                         consider(el, np, d);
                     }
                 } else if (el.w != null && el.h != null) {
                     const x0 = el.x, y0 = el.y, x1 = el.x + el.w, y1 = el.y + el.h;
+                    const corners = [
+                        { x: x0, y: y0 }, { x: x1, y: y0 },
+                        { x: x1, y: y1 }, { x: x0, y: y1 }
+                    ];
+                    corners.forEach(c => {
+                        const d = Math.hypot(world.x - c.x, world.y - c.y);
+                        consider(el, c, Math.max(0, d - endpointBonus));
+                    });
                     const edges = [
                         [x0, y0, x1, y0], [x1, y0, x1, y1],
                         [x1, y1, x0, y1], [x0, y1, x0, y0]
@@ -3250,7 +3376,9 @@ kbd {
                 zHeight: zHeight,
                 sillHeight: sillHeight,
                 soffitHeight: soffitHeight,
-                layer: 'All',
+                layer: (type === 'wall' || type === 'column' || type === 'beam' || type === 'slab') ? 'Structural'
+                    : (type === 'door' || type === 'window' || type === 'opening' || type === 'cutout' || type === 'deduction') ? 'Architectural'
+                    : 'Structural',
                 material: null,
                 costOverride: null,
                 isDeduction: (type === 'cutout' || type === 'opening'),
@@ -3966,7 +4094,7 @@ kbd {
             const { x, y, w, h, swing, doorStyle } = el;
             const style = doorStyle || 'standard';
             const stroke = '#333333';
-            const lw = Math.max(1.5 / scale, 1.2);
+            const lw = 1.5 / scale;
             const isHorizontal = w >= h;
             const openingLen = isHorizontal ? w : h;
 
@@ -4060,7 +4188,7 @@ kbd {
                     ctx.stroke();
                 }
                 ctx.fillStyle = stroke;
-                ctx.font = `${Math.max(9 / scale, 8)}px sans-serif`;
+                ctx.font = `${9 / scale}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('⇔', x + w / 2, y + h / 2);
@@ -4117,7 +4245,7 @@ kbd {
         function drawWindow(ctx, el, scale) {
             const { x, y, w, h } = el;
             const stroke = '#333333';
-            const lw = Math.max(1.5 / scale, 1.2);
+            const lw = 1.5 / scale;
             const isHorizontal = w >= h;
 
             ctx.save();
@@ -4925,6 +5053,13 @@ kbd {
                 elements.push(...newEls);
                 // Do not multi-select all AI elements (creates heavy blue glow / bubble effect)
                 selectedIds = newEls.length ? [newEls[0].id] : [];
+                // Ensure plan view shows all layers after AI (manual draws use Structural/Architectural)
+                currentLayer = 'All';
+                try {
+                    document.querySelectorAll('[data-layer]').forEach(function (btn) {
+                        btn.classList.toggle('active', btn.dataset.layer === 'All');
+                    });
+                } catch (_) {}
                 window.mcAiFromSimple = false;
                 try { saveState(); } catch (_) {}
                 renderAll();
@@ -5191,7 +5326,7 @@ kbd {
 
             const layerFilter = currentLayer === 'All' ? null : currentLayer;
             const visibleEls = elementsOnDrawingVisible
-                ? elements.filter(el => !el.hidden && (layerFilter === null || el.layer === layerFilter))
+                ? elements.filter(el => !el.hidden && (layerFilter === null || el.layer === layerFilter || el.layer === 'All'))
                 : [];
             updateMeasureLabelPosition();
 
@@ -5380,7 +5515,7 @@ kbd {
                             ];
                             handles.forEach(([hx, hy]) => {
                                 // Size handles (gold) — drag to make bigger/smaller
-                                const r = Math.max(6 / viewport.scale, 5);
+                                const r = 6 / viewport.scale;
                                 ctx.fillStyle = '#B8863B';
                                 ctx.strokeStyle = '#fff';
                                 ctx.lineWidth = 1.5 / viewport.scale;
@@ -5533,7 +5668,7 @@ kbd {
                         ];
                         handles.forEach(([hx, hy]) => {
                             // Size handles (gold) — larger + white ring so they are easy to grab
-                            const r = Math.max(6 / viewport.scale, 5);
+                            const r = 6 / viewport.scale;
                             ctx.fillStyle = '#B8863B';
                             ctx.strokeStyle = '#fff';
                             ctx.lineWidth = 1.5 / viewport.scale;
@@ -5697,7 +5832,7 @@ kbd {
                     ctx.shadowColor = 'rgba(0,0,0,0.4)';
                     ctx.shadowBlur = 8 / viewport.scale;
                     ctx.beginPath();
-                    ctx.arc(p.x, p.y, 7, 0, 2 * Math.PI);
+                    ctx.arc(p.x, p.y, 7 / viewport.scale, 0, 2 * Math.PI);
                     ctx.fill();
                     ctx.shadowBlur = 0;
                     ctx.stroke();
@@ -5756,7 +5891,7 @@ kbd {
                         ctx.strokeStyle = '#fff';
                         ctx.lineWidth = 2 / viewport.scale;
                         ctx.beginPath();
-                        ctx.arc(p2.x, p2.y, 7, 0, 2 * Math.PI);
+                        ctx.arc(p2.x, p2.y, 7 / viewport.scale, 0, 2 * Math.PI);
                         ctx.fill();
                         ctx.stroke();
                         ctx.fillStyle = '#fff';
@@ -5948,6 +6083,130 @@ kbd {
          * - Everything else → BoxGeometry
          * Returns { geo, cx, cz, yMode: 'center'|'bottom' }
          */
+
+        /**
+         * Openings belonging to a wall (parentId or plan overlap).
+         */
+        function getOpeningsForWall(wall) {
+            if (!wall) return [];
+            return elements.filter(function (o) {
+                if (!o || o.hidden) return false;
+                const isOpen = o.type === 'door' || o.type === 'window' || o.type === 'opening'
+                    || o.isDeduction || o.type === 'cutout';
+                if (!isOpen) return false;
+                if (o.parentId === wall.id) return true;
+                if (o.parentId != null) return false;
+                // Fallback: overlap test
+                return typeof elementIntersectsWall === 'function' && elementIntersectsWall(wall, o);
+            });
+        }
+
+        /**
+         * Build wall mesh with real openings (holes) using Shape + ExtrudeGeometry.
+         * Shape in local XY: X = along wall length, Y = height; extrude = thickness.
+         * Returns { mesh, cx, cz, wallH } or null.
+         */
+        function createWallMeshWithOpenings(wall, color, selected) {
+            if (!wall || !wall.isLine || !wall.p1 || !wall.p2) return null;
+            const s = calibrationFactor || 1;
+            const du = function (v) { return v * s; };
+            const p1x = du(wall.p1.x), p1z = du(wall.p1.y);
+            const p2x = du(wall.p2.x), p2z = du(wall.p2.y);
+            const dx = p2x - p1x, dz = p2z - p1z;
+            const lenM = Math.hypot(dx, dz);
+            if (!(lenM > 0.02)) return null;
+            const ux = dx / lenM, uz = dz / lenM;
+            const wallH = (typeof wall.zHeight === 'number' && wall.zHeight > 0) ? wall.zHeight : 3.0;
+            const thickM = (typeof wall.thickness === 'number' && wall.thickness > 0)
+                ? wall.thickness : DEFAULT_WALL_THICKNESS_M;
+
+            const shape = new THREE.Shape();
+            shape.moveTo(0, 0);
+            shape.lineTo(lenM, 0);
+            shape.lineTo(lenM, wallH);
+            shape.lineTo(0, wallH);
+            shape.closePath();
+
+            const openings = getOpeningsForWall(wall);
+            openings.forEach(function (o) {
+                // Project opening center onto wall axis (drawing units → metres along wall)
+                let ocx, ocy;
+                if (o.isLine && o.p1 && o.p2) {
+                    ocx = (o.p1.x + o.p2.x) / 2;
+                    ocy = (o.p1.y + o.p2.y) / 2;
+                } else {
+                    ocx = o.x + (o.w || 0) / 2;
+                    ocy = o.y + (o.h || 0) / 2;
+                }
+                // Distance along wall from p1 in drawing units
+                const abx = wall.p2.x - wall.p1.x, aby = wall.p2.y - wall.p1.y;
+                const lenDraw = Math.hypot(abx, aby) || 1;
+                const t = ((ocx - wall.p1.x) * abx + (ocy - wall.p1.y) * aby) / (lenDraw * lenDraw);
+                const alongDraw = Math.max(0, Math.min(lenDraw, t * lenDraw));
+                const alongM = alongDraw * s;
+
+                let widthM;
+                if (typeof cutoutWidthAlongLine === 'function') {
+                    widthM = cutoutWidthAlongLine(wall, o) * s;
+                } else {
+                    widthM = Math.max(o.w || 0, o.h || 0) * s;
+                }
+                widthM = Math.max(0.2, Math.min(lenM - 0.02, widthM || 0.9));
+                const openH = Math.max(0.2, getOpeningHeightM(o));
+                const sillM = Math.max(0, getOpeningSillM(o));
+                // Clamp hole inside wall rectangle
+                let x0 = alongM - widthM / 2;
+                let x1 = alongM + widthM / 2;
+                if (x0 < 0.01) { x1 += (0.01 - x0); x0 = 0.01; }
+                if (x1 > lenM - 0.01) { x0 -= (x1 - (lenM - 0.01)); x1 = lenM - 0.01; }
+                let y0 = sillM;
+                let y1 = sillM + openH;
+                if (y0 < 0) y0 = 0;
+                if (y1 > wallH - 0.01) y1 = wallH - 0.01;
+                if (y1 - y0 < 0.15 || x1 - x0 < 0.15) return;
+
+                const hole = new THREE.Path();
+                hole.moveTo(x0, y0);
+                hole.lineTo(x1, y0);
+                hole.lineTo(x1, y1);
+                hole.lineTo(x0, y1);
+                hole.closePath();
+                shape.holes.push(hole);
+            });
+
+            const geo = new THREE.ExtrudeGeometry(shape, {
+                depth: Math.max(0.05, thickM),
+                bevelEnabled: false,
+                steps: 1
+            });
+            // Geometry: X along wall, Y up, Z thickness (0..thick)
+            // Shift so thickness is centered on wall centerline
+            geo.translate(0, 0, -thickM / 2);
+
+            const mat = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: wall.locked ? 0.6 : 0.92,
+                roughness: 0.5,
+                metalness: 0.06,
+                emissive: selected ? new THREE.Color(0x007aff) : new THREE.Color(0x000000),
+                emissiveIntensity: selected ? 0.35 : 0,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            // Place at p1, orient X along wall direction in XZ plane
+            const angle = Math.atan2(dz, dx); // rotation about Y
+            mesh.position.set(p1x, 0, p1z);
+            mesh.rotation.y = -angle;
+            mesh.userData.elementId = wall.id;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            const cx = (p1x + p2x) / 2;
+            const cz = (p1z + p2z) / 2;
+            return { mesh: mesh, cx: cx, cz: cz, wallH: wallH, openings: openings };
+        }
+
         function createThreeGeometryForElement(el, wM, dM, hM, wallAngle) {
             const s = calibrationFactor || 1;
             const duLocal = function (v) { return v * s; };
@@ -5982,11 +6241,9 @@ kbd {
                 return { geo: geo, cx: cx, cz: cz, yMode: 'bottom', isPolygon: true };
             }
 
-            // --- Circular columns (round plan footprint) ---
+            // --- Circular columns only when explicitly marked (match PDF plan shape otherwise) ---
             if (el.type === 'column') {
-                const aspect = Math.max(wM, dM) / Math.max(0.001, Math.min(wM, dM));
-                // Near-square plan → treat as circular column (typical RC columns on plans)
-                const asCircle = aspect <= 1.25 || el.circular === true || el.shape === 'circle' || el.shape === 'circular';
+                const asCircle = el.circular === true || el.shape === 'circle' || el.shape === 'circular' || el.shape === 'round';
                 if (asCircle) {
                     const radius = Math.max(0.05, Math.min(wM, dM) / 2);
                     const geo = new THREE.CylinderGeometry(radius, radius, Math.max(0.05, hM), 32);
@@ -6028,6 +6285,53 @@ kbd {
                 maxH = 3;
             visibleEls.forEach(el => {
                 const color = new THREE.Color(el.color);
+                // --- Line walls: solid wall with real openings cut as holes ---
+                if (el.type === 'wall' && el.isLine && el.p1 && el.p2) {
+                    const builtWall = createWallMeshWithOpenings(el, color, selectedIds.includes(el.id));
+                    if (builtWall && builtWall.mesh) {
+                        scene.add(builtWall.mesh);
+                        threeObjects.push(builtWall.mesh);
+                        // Edge outline for clarity
+                        try {
+                            const edges = new THREE.EdgesGeometry(builtWall.mesh.geometry);
+                            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
+                                color: selectedIds.includes(el.id) ? 0x007aff : 0x333333
+                            }));
+                            line.position.copy(builtWall.mesh.position);
+                            line.rotation.copy(builtWall.mesh.rotation);
+                            scene.add(line);
+                            threeObjects.push(line);
+                        } catch (_) {}
+                        // Label sprite
+                        try {
+                            const labelCanvas = document.createElement('canvas');
+                            labelCanvas.width = 256;
+                            labelCanvas.height = 64;
+                            const lctx = labelCanvas.getContext('2d');
+                            lctx.fillStyle = 'rgba(0,0,0,0.55)';
+                            lctx.beginPath();
+                            lctx.roundRect(0, 0, 256, 64, 10);
+                            lctx.fill();
+                            lctx.fillStyle = '#fff';
+                            lctx.font = 'bold 20px sans-serif';
+                            lctx.textAlign = 'center';
+                            lctx.textBaseline = 'middle';
+                            lctx.fillText(el.label || 'Wall', 128, 32);
+                            const texture = new THREE.CanvasTexture(labelCanvas);
+                            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+                            sprite.position.set(builtWall.cx, builtWall.wallH + 0.35, builtWall.cz);
+                            sprite.scale.set(2.0, 0.5, 1);
+                            scene.add(sprite);
+                            threeObjects.push(sprite);
+                        } catch (_) {}
+                        minX = Math.min(minX, builtWall.cx - 1);
+                        maxX = Math.max(maxX, builtWall.cx + 1);
+                        minZ = Math.min(minZ, builtWall.cz - 1);
+                        maxZ = Math.max(maxZ, builtWall.cz + 1);
+                        maxH = Math.max(maxH, builtWall.wallH);
+                        return; // wall done (openings rendered as holes; still draw opening markers below)
+                    }
+                }
                 // Plan sizes: drawing units → metres via calibration (du)
                 // Heights (zHeight) and thickness are already stored in metres.
                 let wM = Math.max(0.05, du(el.w || 10));
@@ -6091,42 +6395,60 @@ kbd {
                     cx = du(el.x + (el.w || 10) / 2);
                     cz = du(el.y + (el.h || 10) / 2);
                 }
-                if (isDed) {
-                    // Opening height + sill above FFL (do not force openings to floor)
+                if (isDed || el.type === 'door' || el.type === 'window' || el.type === 'opening') {
+                    // Opening identity marker — wall hole is already cut; show frame + label
                     hM = getOpeningHeightM(el);
                     const sillM = getOpeningSillM(el);
                     const openWM = Math.max(0.15, wM);
                     const openDM = Math.max(0.15, dM);
-                    const hostWall = elements.find(w =>
-                        w.type === 'wall' && !w.hidden &&
-                        el.x < w.x + w.w && el.x + el.w > w.x &&
-                        el.y < w.y + w.h && el.y + el.h > w.y
-                    );
-                    let boxW = openWM,
-                        boxD = openDM;
-                    if (hostWall) {
-                        const thick = hostWall.thickness || DEFAULT_WALL_THICKNESS_M;
-                        if (hostWall.w >= hostWall.h) { boxD = Math.max(thick + 0.08, 0.2);
-                            boxW = openWM; } else { boxW = Math.max(thick + 0.08, 0.2);
-                            boxD = openDM; }
+                    let hostWall = el.parentId != null
+                        ? elements.find(w => w.id === el.parentId)
+                        : null;
+                    if (!hostWall) {
+                        hostWall = elements.find(w =>
+                            w.type === 'wall' && !w.hidden &&
+                            el.x < w.x + w.w && el.x + el.w > w.x &&
+                            el.y < w.y + w.h && el.y + el.h > w.y
+                        );
                     }
+                    let boxW = openWM, boxD = openDM;
+                    let wallAngleOpen = 0;
+                    if (hostWall && hostWall.isLine && hostWall.p1 && hostWall.p2) {
+                        const thick = hostWall.thickness || DEFAULT_WALL_THICKNESS_M;
+                        boxD = Math.max(thick + 0.04, 0.12);
+                        if (typeof cutoutWidthAlongLine === 'function') {
+                            boxW = Math.max(0.2, cutoutWidthAlongLine(hostWall, el) * (calibrationFactor || 1));
+                        }
+                        wallAngleOpen = hostWall.angle != null
+                            ? hostWall.angle
+                            : Math.atan2(hostWall.p2.y - hostWall.p1.y, hostWall.p2.x - hostWall.p1.x);
+                    } else if (hostWall) {
+                        const thick = hostWall.thickness || DEFAULT_WALL_THICKNESS_M;
+                        if (hostWall.w >= hostWall.h) { boxD = Math.max(thick + 0.04, 0.12); boxW = openWM; }
+                        else { boxW = Math.max(thick + 0.04, 0.12); boxD = openDM; }
+                    }
+                    // Thin translucent frame (not a solid block filling the hole)
+                    const frameThk = 0.04;
                     const geo = new THREE.BoxGeometry(boxW, hM, boxD);
+                    const ot = el.openingType || el.type || 'opening';
+                    const frameColor = ot === 'door' ? '#c4a35a' : (ot === 'window' ? '#5b9bd5' : '#e07a3d');
                     const mat = new THREE.MeshStandardMaterial({
-                        color: new THREE.Color(el.color || '#ff3b30'),
+                        color: new THREE.Color(frameColor),
                         transparent: true,
-                        opacity: 0.55,
-                        roughness: 0.35,
+                        opacity: 0.22,
+                        roughness: 0.4,
                         metalness: 0.05,
-                        emissive: new THREE.Color(el.color || '#ff3b30'),
-                        emissiveIntensity: selectedIds.includes(el.id) ? 0.55 : 0.25,
+                        emissive: new THREE.Color(frameColor),
+                        emissiveIntensity: selectedIds.includes(el.id) ? 0.45 : 0.12,
                         depthWrite: false,
                         side: THREE.DoubleSide,
                     });
                     const mesh = new THREE.Mesh(geo, mat);
-                    // BoxGeometry is centered on Y → place mid-height at sill + h/2
                     const baseY = sillM + hM / 2;
                     mesh.position.set(cx, baseY, cz);
+                    if (wallAngleOpen) mesh.rotation.y = -wallAngleOpen;
                     mesh.userData.elementId = el.id;
+                    mesh.userData.isOpening = true;
                     mesh.renderOrder = 2;
                     scene.add(mesh);
                     threeObjects.push(mesh);
@@ -6164,20 +6486,30 @@ kbd {
                     labelCanvas.width = 256;
                     labelCanvas.height = 80;
                     const lctx = labelCanvas.getContext('2d');
-                    lctx.fillStyle = 'rgba(255, 59, 48, 0.95)';
+                    const otLabel = (el.openingType || el.type || 'opening').toString();
+                    const title = otLabel.charAt(0).toUpperCase() + otLabel.slice(1);
+                    const wStr = (typeof cutoutWidthAlongLine === 'function' && hostWall && hostWall.isLine)
+                        ? (cutoutWidthAlongLine(hostWall, el) * (calibrationFactor || 1)).toFixed(2)
+                        : (Math.max(el.w || 0, el.h || 0) * (calibrationFactor || 1)).toFixed(2);
+                    const hStr = hM.toFixed(2);
+                    const thkStr = hostWall && hostWall.thickness
+                        ? Math.round(hostWall.thickness * 1000) + ' mm wall'
+                        : '';
+                    lctx.fillStyle = otLabel === 'door' ? 'rgba(180,140,60,0.95)'
+                        : (otLabel === 'window' ? 'rgba(50,110,180,0.95)' : 'rgba(200,90,40,0.95)');
                     lctx.beginPath();
                     lctx.roundRect(0, 0, 256, 80, 12);
                     lctx.fill();
                     lctx.strokeStyle = '#fff';
-                    lctx.lineWidth = 4;
+                    lctx.lineWidth = 3;
                     lctx.stroke();
                     lctx.fillStyle = '#fff';
-                    lctx.font = 'bold 28px sans-serif';
+                    lctx.font = 'bold 22px sans-serif';
                     lctx.textAlign = 'center';
                     lctx.textBaseline = 'middle';
-                    lctx.fillText('DEDUCT', 128, 28);
-                    lctx.font = '18px sans-serif';
-                    lctx.fillText(el.label, 128, 58);
+                    lctx.fillText(title + '  ' + wStr + '×' + hStr + ' m', 128, 28);
+                    lctx.font = '16px sans-serif';
+                    lctx.fillText((el.label || '') + (thkStr ? ' · ' + thkStr : ''), 128, 58);
                     const texture = new THREE.CanvasTexture(labelCanvas);
                     const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true,
                     depthTest: false });
@@ -7313,7 +7645,10 @@ kbd {
                     totalBrickQty += Number(q.qty) || 0;
                 }
                 totalPlasterArea += netArea;
-                const dedNote = dedRemarks.length ? ` Deductions: ${dedRemarks.join(', ')}` : '';
+                const wallThkMm = Math.round((w.thickness || DEFAULT_WALL_THICKNESS_M) * 1000);
+                const dedNote = dedRemarks.length
+                    ? ` | Deductions: ${dedRemarks.join(', ')}`
+                    : '';
                 rows.push({
                     material: matName,
                     element: w.label,
@@ -7322,9 +7657,16 @@ kbd {
                     cutout: deduction.toFixed(2),
                     net: netArea.toFixed(2),
                     unit: q.unit,
-                    remarks: q.remarks + dedNote,
+                    remarks: `Wall ${wallThkMm} mm · Gross ${gross.toFixed(2)} m² · Deduct ${deduction.toFixed(2)} m² · Net ${netArea.toFixed(2)} m²${dedNote}`,
                     elementId: w.id,
-                    elementLabel: w.label
+                    elementLabel: w.label,
+                    deductionDetails: hits.map(d => ({
+                        kind: d.kind,
+                        label: d.label,
+                        deductM2: d.deductM2,
+                        openWidthM: d.openWidthM,
+                        openHeightM: d.openHeightM
+                    }))
                 });
             });
             const conc = projectOverrides.concrete;
@@ -7924,7 +8266,7 @@ kbd {
                         const el = elements.find(ee => ee.id === selectedIds[0]);
                         if (el && !el.locked) {
                             // Larger hit target so handles are easy to grab when zoomed out
-                            const hs = Math.max(14 / viewport.scale, 10);
+                            const hs = 14 / viewport.scale;
                             // Line endpoints
                             if (el.isLine && el.p1 && el.p2) {
                                 if (Math.hypot(world.x - el.p1.x, world.y - el.p1.y) <= hs) {
@@ -8161,12 +8503,14 @@ kbd {
                         if (hit) {
                             hoveredSnapId = hit.el.id;
                             snapCursorPoint = hit.point;
+                            snapKind = hit.kind || 'edge';
                             if (currentTool === 'select' || !currentTool || currentTool === 'move') {
                                 canvas.style.cursor = 'pointer';
                             }
                         } else {
                             hoveredSnapId = null;
                             snapCursorPoint = null;
+                            snapKind = null;
                         }
                         // Full stack under cursor for overlap UI (select tool)
                         const stack = hitTestAllElements(world);
@@ -8178,6 +8522,7 @@ kbd {
                     } else if (hoveredSnapId || hoverLabelWorld) {
                         hoveredSnapId = null;
                         snapCursorPoint = null;
+                        snapKind = null;
                         hoverLabelWorld = null;
                         overlapHitIds = [];
                         renderCanvas2D();
@@ -8217,7 +8562,11 @@ kbd {
                     const dist = Math.hypot(snapped.x - last.x, snapped.y - last.y);
                     const distM = toMeters(dist);
                     const n = polygonPoints.length;
-                    const snapHint = snapCursorPoint && !e.altKey ? ' · snapped' : '';
+                    let snapHint = '';
+                    if (snapCursorPoint && !e.altKey) {
+                        const el = elements.find(ee => ee.id === hoveredSnapId);
+                        snapHint = ' · ' + (formatSnapLabel(snapKind, el) || 'snapped');
+                    }
                     document.getElementById('statusMode').textContent =
                         `${currentTool}: ${n} pts · next ${distM.toFixed(2)} m · Enter/Done to finish${snapHint}`;
                     renderCanvas2D();
@@ -8234,8 +8583,13 @@ kbd {
                     const distM = toMeters(dist);
                     const n = polygonPoints.length;
                     const ready = n >= 3 ? ' · Enter / Done to finish' : ` · need ${3 - n} more`;
+                    let snapHint = '';
+                    if (snapCursorPoint && !e.altKey) {
+                        const el = elements.find(ee => ee.id === hoveredSnapId);
+                        snapHint = ' · ' + (formatSnapLabel(snapKind, el) || 'snapped');
+                    }
                     document.getElementById('statusMode').textContent =
-                        `${currentTool}: ${n} vertices · next seg ${distM.toFixed(2)} m${ready}`;
+                        `${currentTool}: ${n} vertices · next seg ${distM.toFixed(2)} m${ready}${snapHint}`;
                     renderCanvas2D();
                     return;
                 }
@@ -8330,7 +8684,7 @@ kbd {
                 if (selectedIds.length === 1 && (currentTool === 'select' || currentTool === 'move' || !currentTool)) {
                     const el = elements.find(ee => ee.id === selectedIds[0]);
                     if (el && !el.locked) {
-                        const hs = Math.max(14 / viewport.scale, 10);
+                        const hs = 14 / viewport.scale;
                         let foundHandle = false;
                         if (!el.isLine && el.vertices && el.vertices.length >= 3) {
                             for (let i = 0; i < el.vertices.length; i++) {
@@ -8618,10 +8972,12 @@ kbd {
             }
             const thickness = currentTool === 'beam' ? DEFAULT_BEAM_THICKNESS_M : DEFAULT_WALL_THICKNESS_M;
             const type = currentTool;
+            // Auto-Glue: pull endpoints to nearby walls/columns within tolerance (user can disable)
+            const gluedPts = applyAutoGluePolyline(polygonPoints);
             saveState();
             const newIds = [];
-            for (let i = 0; i < polygonPoints.length - 1; i++) {
-                const p1 = polygonPoints[i], p2 = polygonPoints[i + 1];
+            for (let i = 0; i < gluedPts.length - 1; i++) {
+                const p1 = gluedPts[i], p2 = gluedPts[i + 1];
                 const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
                 if (len < 0.5) continue;
                 const el = createLineElement(type, p1, p2, thickness);
@@ -8726,6 +9082,8 @@ kbd {
                 if (el) {
                     el.isDeduction = true;
                     el.sillHeight = sillHeightM;
+                    el.thickness = thk; // parent wall thickness (m) — never a fixed global
+                    el.parentThickness = thk;
                     el.zHeight = openHeightM;
                     el.openingType = el.openingType || 'opening';
                     if (!parent.cutouts) parent.cutouts = [];
@@ -8752,7 +9110,8 @@ kbd {
         // ---- Complete polygon (slab/floor/cutout) ----
         function completeDrawing() {
             if (['slab', 'cutout', 'column'].includes(currentTool) && polygonPoints.length >= 3) {
-                const pts = polygonPoints.map(p => ({ x: p.x, y: p.y }));
+                // Auto-Glue vertices to nearby wall edges / columns within tolerance
+                const pts = applyAutoGluePolyline(polygonPoints.map(p => ({ x: p.x, y: p.y })));
                 const type = currentTool === 'cutout' ? 'cutout' : currentTool;
                 const el = createPolygonElement(type, pts);
                 if (el) {
@@ -9311,13 +9670,13 @@ kbd {
                     ctx.rotate(ang);
                     ctx.fillStyle = col + '99';
                     ctx.strokeStyle = col;
-                    ctx.lineWidth = Math.max(1 / scale, 0.5);
+                    ctx.lineWidth = 1 / scale;
                     ctx.fillRect(-len / 2, -thk / 2, len, thk);
                     ctx.strokeRect(-len / 2, -thk / 2, len, thk);
                     ctx.restore();
                     ctx.save();
                     ctx.fillStyle = '#111';
-                    ctx.font = `${Math.max(10 / scale, 9)}px sans-serif`;
+                    ctx.font = `${10 / scale}px sans-serif`;
                     const lenM = toMeters(len);
                     ctx.fillText(
                         `${el.label || el.type}  ${lenM.toFixed(2)} m  h=${(el.zHeight || 0).toFixed(2)} m`,
@@ -9331,23 +9690,23 @@ kbd {
                     ctx.closePath();
                     ctx.fillStyle = col + '55';
                     ctx.strokeStyle = col;
-                    ctx.lineWidth = Math.max(1.5 / scale, 0.8);
+                    ctx.lineWidth = 1.5 / scale;
                     ctx.fill();
                     ctx.stroke();
                     const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
                     const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
                     ctx.fillStyle = '#111';
-                    ctx.font = `${Math.max(10 / scale, 9)}px sans-serif`;
+                    ctx.font = `${10 / scale}px sans-serif`;
                     ctx.fillText(`${el.label || el.type}  h=${(el.zHeight || 0).toFixed(2)} m`, cx, cy);
                 } else {
                     const x = el.x || 0, y = el.y || 0, w = el.w || 10, h = el.h || 10;
                     ctx.fillStyle = col + '55';
                     ctx.strokeStyle = col;
-                    ctx.lineWidth = Math.max(1.5 / scale, 0.8);
+                    ctx.lineWidth = 1.5 / scale;
                     ctx.fillRect(x, y, w, h);
                     ctx.strokeRect(x, y, w, h);
                     ctx.fillStyle = '#111';
-                    ctx.font = `${Math.max(10 / scale, 9)}px sans-serif`;
+                    ctx.font = `${10 / scale}px sans-serif`;
                     ctx.fillText(
                         `${el.label || el.type}  h=${(el.zHeight || 0).toFixed(2)} m`,
                         x + 4, y + 12
@@ -10313,6 +10672,44 @@ kbd {
                 this.classList.toggle('primary');
                 updateSnapStatus();
             });
+            (function setupAutoGlueUI() {
+                const btn = document.getElementById('btnAutoGlue');
+                const inp = document.getElementById('glueToleranceMm');
+                function refreshGlueUI() {
+                    if (btn) {
+                        btn.classList.toggle('tool-active', autoGlueEnabled);
+                        btn.innerHTML = autoGlueEnabled
+                            ? '<i class="fas fa-link"></i> Glue'
+                            : '<i class="fas fa-unlink"></i> Separate';
+                        btn.setAttribute('data-tooltip', autoGlueEnabled
+                            ? 'Auto-Glue ON — nearby walls/columns join within tolerance. Click for Keep Separate.'
+                            : 'Keep Separate — elements stay independent even if close. Click for Auto-Glue.');
+                    }
+                    if (inp) inp.value = String(glueToleranceMm);
+                }
+                if (btn) {
+                    btn.addEventListener('click', function () {
+                        autoGlueEnabled = !autoGlueEnabled;
+                        refreshGlueUI();
+                        try {
+                            showToast(autoGlueEnabled
+                                ? ('Auto-Glue ON · tolerance ' + glueToleranceMm + ' mm')
+                                : 'Keep Separate — no auto connection', 'success');
+                        } catch (_) {}
+                    });
+                }
+                if (inp) {
+                    inp.addEventListener('change', function () {
+                        let v = parseFloat(inp.value);
+                        if (!isFinite(v) || v < 0) v = 0;
+                        if (v > 500) v = 500;
+                        glueToleranceMm = v;
+                        inp.value = String(v);
+                        try { showToast('Connection tolerance: ' + v + ' mm', 'success'); } catch (_) {}
+                    });
+                }
+                refreshGlueUI();
+            })();
             document.getElementById('btnSnapWall').addEventListener('click', function() {
                 snapWall = !snapWall;
                 this.classList.toggle('primary');
@@ -10789,7 +11186,7 @@ kbd {
             const container = document.getElementById('tree-container');
             const cats = {};
             const layerFilter = currentLayer === 'All' ? null : currentLayer;
-            const filtered = elements.filter(el => layerFilter === null || el.layer === layerFilter);
+            const filtered = elements.filter(el => layerFilter === null || el.layer === layerFilter || el.layer === 'All');
             filtered.forEach(el => {
                 const key = el.type + 's';
                 if (!cats[key]) cats[key] = [];
