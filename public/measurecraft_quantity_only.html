@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeasureCraft · Simple Mode — Quantity Takeoff</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="research-client.js"></script>
+  
+  <link rel="stylesheet" href="css/measurecraft_quantity_only.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="mode-select.html">
+      <div class="brand-icon">
+        <img src="logo-icon.png" alt="MeasureCraft" width="40" height="40" />
+      </div>
+      <div>
+        <h1>MeasureCraft</h1>
+        <span>Simple Mode · Guided quantity takeoff</span>
+      </div>
+    </a>
+    <div class="header-actions">
+      <a href="mode-select.html">Modes</a>
+      <button type="button" id="btn-start-over" title="Clear this project and start fresh">Start over</button>
+      <button type="button" id="btn-open-pro" title="Continue in Professional mode">Open Pro</button>
+      <button type="button" id="btn-theme" title="Switch to dark mode" aria-label="Toggle dark / light mode">
+        <!-- Moon: shown in light mode (click → go dark) -->
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"/>
+        </svg>
+        <!-- Sun: shown in dark mode (click → go light) -->
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Full-width horizontal step progress at top -->
+  <div class="stepper-bar">
+      <div class="stepper" id="stepper" role="list" aria-label="Takeoff progress">
+      <div class="step active" data-step="1" role="button" tabindex="0" aria-current="step" aria-label="Step 1: Upload drawing">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Upload drawing</div>
+          <div class="step-desc">PDF or image of your floor plan</div>
+        </div>
+      </div>
+      <div class="step" data-step="2" role="button" tabindex="0" aria-label="Step 2: Calibrate scale">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Calibrate scale</div>
+          <div class="step-desc">Set real-world size from a known length</div>
+        </div>
+      </div>
+      <div class="step" data-step="3" role="button" tabindex="0" aria-label="Step 3: AI analysis">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">AI analysis</div>
+          <div class="step-desc">Detect walls, slabs, doors, columns</div>
+        </div>
+      </div>
+      <div class="step" data-step="4" role="button" tabindex="0" aria-label="Step 4: Review elements">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-title">Review elements</div>
+          <div class="step-desc">Check detections before costing</div>
+        </div>
+      </div>
+      <div class="step" data-step="5" role="button" tabindex="0" aria-label="Step 5: Material quantities">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-title">Material quantities</div>
+          <div class="step-desc">Cement, sand, aggregate &amp; more</div>
+        </div>
+      </div>
+      <div class="step" data-step="6" role="button" tabindex="0" aria-label="Step 6: Report and export">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <div class="step-title">Report &amp; export</div>
+          <div class="step-desc">Download material Excel BOQ</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="flow-status" id="flow-status" role="status" aria-live="polite">
+    <strong id="flow-status-step">Step 1 of 6</strong>
+    <span class="flow-status-dot">·</span>
+    <span id="flow-status-copy">Upload a drawing to begin.</span>
+  </div>
+
+  <div class="app-body">
+    <!-- LEFT: step content panels -->
+    <aside class="panel-left">
+      <!-- STEP 1 -->
+      <div class="step-panel active" id="panel-1">
+        <div class="card" id="welcome-card" style="display:none;">
+          <h3>Welcome 👋</h3>
+          <p class="hint" style="margin-bottom:10px;">Six quick steps take you from a floor plan to a costed BOQ: upload → calibrate → AI detect → review → rates → export. Each step explains what to do and why — use the progress bar at the top to jump back anytime.</p>
+          <button type="button" class="btn btn-sm" id="btn-dismiss-welcome" style="width:auto;">Got it</button>
+        </div>
+        <div class="card">
+          <h3>Upload floor plan</h3>
+          <p class="hint">Upload a clear architectural plan (PDF, PNG, or JPG). Best results: vector PDF or scan ≥ 150–300 DPI. AI works best on high-contrast plans with visible walls and room labels.</p>
+            <div class="upload-zone" id="upload-zone" role="button" tabindex="0" aria-controls="file-input" aria-label="Upload a floor plan PDF or image">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <strong>Drop plan here or click to browse</strong>
+            <p>PDF · PNG · JPG · max 25 MB · high-resolution render</p>
+          </div>
+          <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg" hidden />
+          <div id="file-chip" class="file-chip" style="display:none;">
+            <span id="file-name">—</span>
+            <button type="button" id="btn-clear-file" title="Remove uploaded drawing" aria-label="Remove uploaded drawing">×</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Project details <span class="badge">optional</span></h3>
+          <p class="hint" style="margin-top:-2px;">Optional — fill these after you upload a drawing (or leave blank).</p>
+          <div class="form-group">
+              <label class="form-label" for="proj-name">Project name</label>
+            <input class="form-input" id="proj-name" placeholder="e.g. Project name" value="" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="proj-client">Client</label>
+              <input class="form-input" id="proj-client" placeholder="Client name" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="proj-location">Location</label>
+              <input class="form-input" id="proj-location" placeholder="City / site" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="proj-currency">Currency</label>
+              <select class="form-select" id="proj-currency">
+                <option value="LKR">LKR (Rs.)</option>
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="INR">INR (₹)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="proj-region">Region (for rates)</label>
+              <input class="form-input" id="proj-region" placeholder="e.g. city / region" value="" />
+            </div>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btn-to-calibrate" disabled>Next: Calibrate scale →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step-panel" id="panel-2">
+        <div class="card">
+          <h3>Calibrate scale</h3>
+          <div class="explain">
+            <strong>Why this matters:</strong> Drawings are in pixels. Calibration tells MeasureCraft how many metres one pixel represents, so areas and lengths become real quantities (m, m², m³).
+          </div>
+          <p class="hint">Click <strong>Pick two points</strong>, then click both ends of a known dimension on the plan (e.g. a 5 m wall or a scale bar).</p>
+          <button type="button" class="btn btn-teal" id="btn-pick-points">Pick two points on plan</button>
+          <div class="form-row" style="margin-top:12px;">
+            <div class="form-group">
+              <label class="form-label" for="calib-real">Real length</label>
+              <input class="form-input" id="calib-real" type="number" min="0.01" step="any" placeholder="e.g. 5" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="calib-unit">Unit</label>
+              <select class="form-select" id="calib-unit">
+                <option value="m">metres (m)</option>
+                <option value="ft">feet (ft)</option>
+                <option value="mm">millimetres (mm)</option>
+              </select>
+            </div>
+          </div>
+          <div class="detail-box">
+            <h4>Calibration status</h4>
+            <div class="detail-row"><span class="k">Pixel distance</span><span class="v" id="calib-px">—</span></div>
+            <div class="detail-row"><span class="k">Scale factor</span><span class="v" id="calib-scale">Not set</span></div>
+            <div class="detail-row"><span class="k">1 pixel equals</span><span class="v" id="calib-mpp">—</span></div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-apply-scale" disabled>Apply scale</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-goto="1">← Back</button>
+          <button type="button" class="btn btn-primary" id="btn-to-ai" disabled>Next: AI analysis →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step-panel" id="panel-3">
+        <div class="card ai-guidance-card">
+          <div class="ai-guidance-head">
+            <div>
+              <div class="ai-guidance-kicker">Step 3 · Smart detection</div>
+              <h3>Teach the AI about this drawing</h3>
+              <p class="ai-guidance-sub">Give the AI a little context before it scans. Clear notes and a legend image help it recognise your project’s symbols more reliably.</p>
+            </div>
+          </div>
+          <div class="ai-how" aria-label="Detection steps">
+            <div class="ai-how-step">
+              <span class="ai-how-num">1</span>
+              <span><strong>Describe</strong>Explain colours, lines and symbols.</span>
+            </div>
+            <div class="ai-how-step">
+              <span class="ai-how-num">2</span>
+              <span><strong>Attach</strong>Add a crop or photo of the legend.</span>
+            </div>
+            <div class="ai-how-step">
+              <span class="ai-how-num">3</span>
+              <span><strong>Review</strong>Check every AI proposal yourself.</span>
+            </div>
+          </div>
+          <div class="explain">
+            <strong>What happens next:</strong> AI proposes walls, slabs, columns, beams, doors and windows. Your corrections are always more important than the AI’s suggestion.
+          </div>
+          <div class="form-group" style="margin:12px 0 12px;">
+            <div class="ai-label-row">
+              <label for="ai-legend-notes">Drawing legend / QS guidance</label>
+              <span class="ai-optional">Optional, but recommended</span>
+            </div>
+            <textarea class="ai-legend-textarea" id="ai-legend-notes" rows="3" maxlength="4000" placeholder="Example: thick black lines = structural walls; blue rectangles = windows; red arcs = doors; dashed lines = beams. Ignore dimensions, furniture and title blocks."></textarea>
+            <p class="hint" style="margin:6px 0 0; font-size:12px; line-height:1.45;">Tell the AI what to look for and what to ignore. This guides this scan; it does not permanently train the model.</p>
+          </div>
+          <div class="ai-legend-upload" id="ai-legend-upload">
+            <div class="ai-upload-row">
+              <div class="ai-upload-top">
+                <div class="ai-upload-icon" aria-hidden="true">▧</div>
+                <div class="ai-upload-copy">
+                  <div class="ai-upload-title">Add legend reference images</div>
+                  <div class="ai-upload-help">Upload up to 4 JPG, PNG or WebP images. Use a clear crop of the legend or symbol key.</div>
+                </div>
+              </div>
+              <button type="button" class="btn ai-upload-button" id="btn-add-legend-image">Choose images</button>
+              <input id="ai-legend-images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden />
+            </div>
+            <div class="ai-file-list" id="ai-legend-file-list" aria-live="polite"></div>
+          </div>
+          <div class="progress-panel" id="ai-progress">
+            <div class="title">Analysing drawing…</div>
+            <div class="progress-bar"><div></div></div>
+            <div class="progress-msg" id="ai-progress-msg">Uploading plan to AI…</div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-run-ai">Run AI detection</button>
+          <div id="ai-result-summary" style="display:none;margin-top:12px;"></div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-goto="2">← Back</button>
+          <button type="button" class="btn btn-primary" id="btn-to-review" disabled>Next: Review →</button>
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step-panel" id="panel-4">
+        <div class="card review-card">
+          <div class="review-head">
+            <h3>Review detected elements</h3>
+            <p class="hint">Toggle items off if the AI was wrong. Only checked items count toward quantities.</p>
+          </div>
+          <div id="elements-list-wrap">
+            <div class="empty-msg">No elements yet. Run AI detection first.</div>
+          </div>
+          <div class="legend" id="type-legend"></div>
+        </div>
+        <div class="btn-row" style="display:none">
+          <button type="button" class="btn btn-sm" id="btn-accept-all">Accept all</button>
+          <button type="button" class="btn btn-sm" id="btn-reject-all">Reject all</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-goto="3">← Back</button>
+          <button type="button" class="btn btn-primary" id="btn-to-qty">Next: Material quantities →</button>
+        </div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step-panel" id="panel-5">
+        <div class="card">
+          <h3>Material estimate <span class="badge">auto from elements</span></h3>
+          <p class="hint">Calculated like Pro Mode — cement, sand, aggregate, brick, tiles, paint from accepted elements. Enter unit prices to cost the BOQ.</p>
+          <button type="button" class="btn btn-teal btn-sm" id="btn-fetch-rates" style="width:auto;margin-bottom:10px;">Fetch market rates (AI)</button>
+          <div id="materials-table-wrap"></div>
+          <div class="cost-summary" id="cost-summary">
+            <div class="line"><span>Materials subtotal</span><span id="cost-sub">—</span></div>
+            <div class="line"><span>Contingency (15%)</span><span id="cost-cont">—</span></div>
+            <div class="grand"><span>Estimated total</span><span id="cost-grand">—</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Element quantities</h3>
+          <p class="hint">Structural / architectural totals used as the basis for materials.</p>
+          <div id="qty-breakdown"></div>
+        </div>
+        <div class="card">
+          <h3>How materials are calculated</h3>
+          <div class="explain">
+            <strong>Concrete (1:2:4):</strong> slabs + columns + beams → cement bags, sand m³, aggregate m³<br>
+            <strong>Plaster (1:5, 10 mm):</strong> wall face area → extra cement + sand<br>
+            <strong>Brick:</strong> wall face × 101 Nos/m²<br>
+            <strong>Tiles (600×600):</strong> slab floor area + 5% waste · adhesive bags<br>
+            <strong>Paint:</strong> wall face × 2 faces × 2 coats @ 14 m²/L
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-goto="4">← Back</button>
+          <button type="button" class="btn btn-primary" id="btn-to-export">Next: Export →</button>
+        </div>
+      </div>
+
+      <!-- STEP 6 -->
+      <div class="step-panel" id="panel-6">
+        <div class="card">
+          <h3>Export material BOQ</h3>
+          <p class="hint">Same structure as Pro Mode — project header, material estimate, element quantities, and notes.</p>
+          <div class="detail-box">
+            <h4>Report includes</h4>
+            <div class="detail-row"><span class="k">Project &amp; client</span><span class="v">Yes</span></div>
+            <div class="detail-row"><span class="k">Material quantities (cement, sand…)</span><span class="v">Yes</span></div>
+            <div class="detail-row"><span class="k">Element quantities</span><span class="v">Yes</span></div>
+            <div class="detail-row"><span class="k">Prices, contingency &amp; notes</span><span class="v">Yes</span></div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-export-excel" style="margin-bottom:8px;">Download Excel BOQ</button>
+          <button type="button" class="btn" id="btn-export-text">Copy text summary</button>
+          <p class="hint" style="margin-top:10px;margin-bottom:0;">Drawing, scale, and accepted elements carry over if you continue in Pro Mode.</p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-goto="5">← Back</button>
+          <button type="button" class="btn btn-teal" id="btn-continue-pro">Continue in Pro Mode →</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER: drawing viewer -->
+    <main class="panel-center">
+      <div class="viewer-toolbar">
+        <button type="button" id="btn-zoom-out" title="Zoom out">−</button>
+        <button type="button" id="btn-zoom-in" title="Zoom in">+</button>
+        <button type="button" id="btn-zoom-fit" title="Fit page">Fit</button>
+        <button type="button" id="btn-zoom-lock" title="Lock Zoom — disable trackpad/scroll zoom">🔓</button>
+        <div class="sep"></div>
+        <button type="button" id="btn-pan" title="Pan">Pan</button>
+        <div class="sep"></div>
+        <span class="label" id="status-scale">Scale: not calibrated</span>
+        <span class="label" id="status-zoom">100%</span>
+        <span class="label" id="status-elems">0 elements</span>
+      </div>
+      <div class="viewer-area" id="viewer-area">
+        <div class="calibrate-banner" id="calibrate-banner">Click first point of known dimension…</div>
+        <div class="viewer-empty" id="viewer-empty">
+          <iframe
+            class="walkthrough-frame"
+            id="walkthrough-frame"
+            src="walkthrough.html?embed=1"
+            title="MeasureCraft product walkthrough"
+            loading="eager"
+            allow="autoplay"
+          ></iframe>
+          <div class="walkthrough-fallback" id="walkthrough-fallback">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <div style="font-weight:600;margin-bottom:4px;">No drawing loaded</div>
+            <div style="font-size:13px;">Upload a PDF or image to begin</div>
+          </div>
+        </div>
+        <div id="canvas-stack">
+          <canvas id="plan-canvas"></canvas>
+          <canvas id="overlay-canvas"></canvas>
+        </div>
+        <div class="viewer-badge" id="viewer-badge">No file</div>
+      </div>
+    </main>
+
+    <!-- RIGHT: live summary -->
+    <aside class="panel-right">
+      <div class="card" style="position:sticky;top:0;">
+        <h3>Live summary</h3>
+        <p class="hint">Updates as you complete each step. This is what feeds your BOQ.</p>
+        <div class="detail-box">
+          <h4>Project</h4>
+          <div class="detail-row"><span class="k">Name</span><span class="v" id="sum-name">Untitled Project</span></div>
+          <div class="detail-row"><span class="k">Client</span><span class="v" id="sum-client">—</span></div>
+          <div class="detail-row"><span class="k">Currency</span><span class="v" id="sum-currency">LKR</span></div>
+        </div>
+        <div class="detail-box">
+          <h4>Drawing</h4>
+          <div class="detail-row"><span class="k">File</span><span class="v" id="sum-file">—</span></div>
+          <div class="detail-row"><span class="k">Scale</span><span class="v" id="sum-scale">Not calibrated</span></div>
+          <div class="detail-row"><span class="k">AI run</span><span class="v" id="sum-ai">Not yet</span></div>
+        </div>
+        <div class="detail-box">
+          <h4>Quantities</h4>
+          <div class="detail-row"><span class="k">Wall face</span><span class="v" id="sum-wall">—</span></div>
+          <div class="detail-row"><span class="k">Floor / slab</span><span class="v" id="sum-slab">—</span></div>
+          <div class="detail-row"><span class="k">Concrete vol.</span><span class="v" id="sum-conc">—</span></div>
+          <div class="detail-row"><span class="k">Openings</span><span class="v" id="sum-open">—</span></div>
+          <div class="detail-row"><span class="k">Elements on</span><span class="v" id="sum-count">0</span></div>
+        </div>
+        <div class="detail-box">
+          <h4>Estimate</h4>
+          <div class="detail-row"><span class="k">Grand total</span><span class="v" id="sum-total">—</span></div>
+        </div>
+        <div class="explain" style="margin:0;">
+          Need wall deductions, continuous polylines, or 3D? Switch to <strong>Pro Mode</strong> after export.
+        </div>
+      </div>
+    </aside>
+  </div>
+
+      <div id="toast" role="status" aria-live="polite"></div>
+
+  
+
+  
+  <button type="button" class="mc-ai-fab" id="mcAiFab" title="AI Assistant" aria-label="Open AI Assistant"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+  <div class="mc-ai-panel" id="mcAiPanel" role="dialog" aria-label="AI Assistant">
+    <div class="mc-ai-head"><span>AI Assistant</span><div class="mc-ai-actions"><button type="button" id="mcAiClose" title="Close">×</button></div></div>
+    <div class="mc-ai-body" id="mcAiBody"><strong>Hi — how can I help?</strong><br><br>Ask about upload, calibration, AI detect, rates, or export. Lock Zoom helps with trackpad pan.</div>
+    <div class="mc-ai-foot"><input type="text" id="mcAiInput" placeholder="Ask something…" autocomplete="off" /><button type="button" id="mcAiSend">Send</button></div>
+  </div>
+  
+  <script src="js/measurecraft_quantity_only.js?v=slab-qty-parity-1"></script>
+</body>
+</html>

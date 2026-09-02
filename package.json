@@ -1,0 +1,29 @@
+{
+  "name": "measurecraft",
+  "version": "1.0.0",
+  "description": "MeasureCraft — AI element detection & quantity takeoff",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "export-yolo": "node scripts/export-yolo.js",
+    "test-auth": "node -e \"require('./auth'); console.log('auth module ok')\"",
+    "test-wall-identity": "node tests/wall-identity-regression.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1110.0",
+    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  },
+  "optionalDependencies": {
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "sharp": "^0.35.3",
+    "tesseract.js": "^5.1.1"
+  }
+}

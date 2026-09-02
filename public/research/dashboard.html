@@ -1,0 +1,1812 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeasureCraft — Research Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;600;700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-primary: #F5F2EA;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #EFEBE0;
+      --bg-hover: #EBE6D9;
+      --bg-active: #F1E6D2;
+      --bg-elevated: #ffffff;
+      --text-primary: #221F1C;
+      --text-secondary: #6B6155;
+      --text-tertiary: #9C9284;
+      --text-inverse: #ffffff;
+      --border-color: #DED5C2;
+      --border-subtle: rgba(107, 97, 85, 0.15);
+      --border-focus: #B8863B;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.07), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+      --accent: #B8863B;
+      --accent-hover: #96692A;
+      --accent-light: #F1E6D2;
+      --accent-subtle: #F8F2E7;
+      --success: #2F7D4F;
+      --success-light: #D9EDE0;
+      --warning: #B8842B;
+      --warning-light: #F5E9CE;
+      --danger: #B23A2E;
+      --danger-light: #F5DCD8;
+      --card-bg: #ffffff;
+      --input-bg: #ffffff;
+      --input-border: #DED5C2;
+      --font: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'Space Mono', ui-monospace, Menlo, Consolas, monospace;
+      --font-display: 'Fraunces', Georgia, serif;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --radius-full: 999px;
+      /* aliases used by existing markup */
+      --bg: var(--bg-primary);
+      --sidebar: var(--bg-secondary);
+      --card: var(--card-bg);
+      --elevated: var(--bg-tertiary);
+      --ink: var(--text-primary);
+      --muted: var(--text-secondary);
+      --border: var(--border-color);
+      --teal: var(--accent);
+      --teal-dim: var(--accent-light);
+      --blue: #4A7AB5;
+      --amber: var(--warning);
+      --rose: var(--danger);
+      --violet: #7B6BA8;
+      --ok: var(--success);
+      --gradient-accent: linear-gradient(135deg, var(--accent) 0%, #D4A94F 100%);
+      --glass-bg: rgba(255, 255, 255, 0.72);
+      --glass-border: rgba(255, 255, 255, 0.5);
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    [data-theme="dark"] {
+      --bg-primary: #16140F;
+      --bg-secondary: #201D17;
+      --bg-tertiary: #2A261F;
+      --bg-hover: #2A251D;
+      --bg-active: #3A2E1C;
+      --bg-elevated: #201D17;
+      --text-primary: #F7F1E6;
+      --text-secondary: #C9BFAE;
+      --text-tertiary: #A89E8E;
+      --text-inverse: #16140F;
+      --border-color: #4A4338;
+      --border-subtle: rgba(167, 158, 142, 0.15);
+      --border-focus: #D0A257;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.35);
+      --accent: #D0A257;
+      --accent-hover: #E0B569;
+      --accent-light: #3A2E1C;
+      --accent-subtle: #241E14;
+      --success: #4FA26E;
+      --success-light: #12271A;
+      --warning: #E0B569;
+      --warning-light: #2E2412;
+      --danger: #E07A6C;
+      --danger-light: #2E1512;
+      --card-bg: #201D17;
+      --input-bg: #1B1812;
+      --input-border: #38332A;
+      --bg: var(--bg-primary);
+      --sidebar: var(--bg-secondary);
+      --card: var(--card-bg);
+      --elevated: var(--bg-tertiary);
+      --ink: var(--text-primary);
+      --muted: var(--text-secondary);
+      --border: var(--border-color);
+      --teal: var(--accent);
+      --teal-dim: var(--accent-light);
+      --blue: #7BA3D4;
+      --amber: var(--warning);
+      --rose: var(--danger);
+      --violet: #A89BC8;
+      --ok: var(--success);
+      --gradient-accent: linear-gradient(135deg, var(--accent) 0%, #E8C578 100%);
+      --glass-bg: rgba(32, 29, 23, 0.72);
+      --glass-border: rgba(255, 255, 255, 0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+    :focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    body {
+      font-family: var(--font);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      display: flex;
+      min-height: 100vh;
+      transition: background 0.25s var(--ease-out), color 0.25s var(--ease-out);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+    .sidebar {
+      width: 248px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-sm);
+      animation: slideInLeft 0.4s var(--ease-out);
+    }
+    @keyframes slideInLeft { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+    .brand {
+      padding: 4px 10px 18px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 14px;
+    }
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--gradient-accent); color: var(--text-inverse);
+      display: grid; place-items: center; font-size: 14px; font-weight: 700;
+      flex-shrink: 0;
+      box-shadow: var(--shadow-sm);
+    }
+    .brand h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+    .brand p {
+      margin: 0;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+    }
+    .nav-btn {
+      display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      background: transparent; border: none;
+      color: var(--text-secondary);
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      font: inherit; font-size: 13px; font-weight: 500;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out), transform 0.15s var(--ease-out);
+    }
+    .nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); transform: translateX(2px); }
+    .nav-btn .nav-icon {
+      width: 16px; height: 16px; flex-shrink: 0;
+      display: grid; place-items: center;
+      opacity: 0.7;
+      transition: opacity 0.18s var(--ease-out);
+    }
+    .nav-btn .nav-icon svg { width: 100%; height: 100%; stroke: currentColor; fill: none; stroke-width: 1.7; }
+    .nav-btn.active {
+      background: var(--accent-light);
+      color: var(--accent-hover);
+      font-weight: 600;
+    }
+    .nav-btn.active .nav-icon { opacity: 1; }
+    .nav-btn.active::before {
+      content: '';
+      position: absolute;
+      left: -14px; top: 50%;
+      transform: translateY(-50%);
+      width: 3px; height: 18px;
+      border-radius: 0 3px 3px 0;
+      background: var(--accent);
+      animation: growBar 0.25s var(--ease-spring);
+    }
+    @keyframes growBar { from { height: 0; opacity: 0; } to { height: 18px; opacity: 1; } }
+    [data-theme="dark"] .nav-btn.active { color: var(--accent); }
+    .sidebar-foot {
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .theme-toggle {
+      display: flex;
+      width: 100%;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-full);
+      padding: 3px;
+      gap: 2px;
+    }
+    .theme-toggle button {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 8px;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 0.2s var(--ease-out);
+    }
+    .theme-toggle button.active {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--glass-bg);
+      backdrop-filter: blur(10px) saturate(1.4);
+      -webkit-backdrop-filter: blur(10px) saturate(1.4);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: var(--shadow-sm);
+    }
+    .topbar h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .topbar .hint { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .content { padding: 22px 24px 48px; max-width: 1400px; width: 100%; margin: 0 auto; }
+    .panel { display: none; }
+    .panel.active { display: block; animation: panelIn 0.38s var(--ease-out); }
+    @keyframes panelIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .panel.active > * { animation: cardIn 0.4s var(--ease-out) backwards; }
+    .panel.active > *:nth-child(1) { animation-delay: 0.02s; }
+    .panel.active > *:nth-child(2) { animation-delay: 0.06s; }
+    .panel.active > *:nth-child(3) { animation-delay: 0.10s; }
+    .panel.active > *:nth-child(4) { animation-delay: 0.14s; }
+    .panel.active > *:nth-child(5) { animation-delay: 0.18s; }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .kpi {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+      animation: cardIn 0.4s var(--ease-out) backwards;
+    }
+    .kpi:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--accent);
+    }
+    .kpi-grid .kpi:nth-child(1) { animation-delay: 0.02s; }
+    .kpi-grid .kpi:nth-child(2) { animation-delay: 0.05s; }
+    .kpi-grid .kpi:nth-child(3) { animation-delay: 0.08s; }
+    .kpi-grid .kpi:nth-child(4) { animation-delay: 0.11s; }
+    .kpi-grid .kpi:nth-child(5) { animation-delay: 0.14s; }
+    .kpi-grid .kpi:nth-child(6) { animation-delay: 0.17s; }
+    .kpi-grid .kpi:nth-child(7) { animation-delay: 0.20s; }
+    .kpi-grid .kpi:nth-child(8) { animation-delay: 0.23s; }
+    .kpi-grid .kpi:nth-child(9) { animation-delay: 0.26s; }
+    .kpi-grid .kpi:nth-child(10) { animation-delay: 0.29s; }
+    .kpi-grid .kpi:nth-child(11) { animation-delay: 0.32s; }
+    .kpi-grid .kpi:nth-child(12) { animation-delay: 0.35s; }
+    .kpi .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-tertiary);
+      margin-bottom: 6px;
+    }
+    .kpi .value {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi .sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+    }
+    .card:hover { box-shadow: var(--shadow-md); }
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .muted { color: var(--text-secondary); font-size: 12px; }
+    .mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0; }
+    button, .btn {
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 9px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: var(--text-primary);
+      color: var(--text-inverse);
+      transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out), transform 0.12s var(--ease-out), box-shadow 0.15s var(--ease-out);
+    }
+    button:hover, .btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+    button:active, .btn:active { transform: translateY(0); }
+    button:disabled, .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
+    button.secondary, .btn.secondary {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      border-color: var(--border-color);
+    }
+    button.secondary:hover, .btn.secondary:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent);
+    }
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    button.danger:hover { filter: brightness(1.08); }
+    input, select, textarea {
+      font: inherit;
+      font-size: 13px;
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--input-border);
+      background: var(--input-bg);
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-color);
+      vertical-align: top;
+    }
+    th {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--text-tertiary);
+      background: var(--bg-tertiary);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      box-shadow: 0 1px 0 var(--border-color);
+    }
+    tbody tr { transition: background 0.12s var(--ease-out); }
+    tr:hover td { background: var(--bg-hover); }
+    .good { color: var(--success); font-weight: 600; }
+    .warn { color: var(--warning); font-weight: 600; }
+    .bad { color: var(--danger); font-weight: 600; }
+    .tag {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+    .tag.pro { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+    .tag.simple { background: color-mix(in srgb, var(--violet) 18%, transparent); color: var(--violet); }
+    .tag.ai { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-hover); }
+    .tag.corr { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+    [data-theme="dark"] .tag.ai { color: var(--accent); }
+    .scroll {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--card-bg);
+    }
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .chart-box {
+      position: relative;
+      height: 260px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+    }
+    .auth-gate {
+      max-width: 440px;
+      margin: 10vh auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+      animation: cardIn 0.45s var(--ease-out);
+    }
+    .auth-gate h2 {
+      margin: 0 0 8px;
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 600;
+      background: var(--gradient-accent);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .auth-gate p {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin: 0 0 18px;
+      line-height: 1.5;
+    }
+    .auth-gate code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg-tertiary);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .auth-gate label {
+      text-align: left;
+      display: block;
+      margin-bottom: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .auth-gate input { width: 100%; margin-top: 6px; }
+    .auth-gate button { width: 100%; margin-top: 4px; padding: 11px 16px; }
+    .empty {
+      text-align: center;
+      padding: 40px 16px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+    .empty::before {
+      content: '';
+      display: block;
+      width: 34px; height: 34px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      background: var(--bg-tertiary);
+      border: 1px dashed var(--border-color);
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(0);
+      background: var(--text-primary);
+      color: var(--text-inverse);
+      border: none;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out), visibility 0.25s;
+      z-index: 50;
+      pointer-events: none;
+      box-shadow: var(--shadow-lg);
+    }
+    .toast.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(-4px); }
+    .toast::before {
+      content: '';
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+    .toast.error::before { background: var(--danger); }
+    .toast.error { background: var(--danger); }
+    @keyframes shake {
+      10%, 90% { transform: translateX(-1px); }
+      20%, 80% { transform: translateX(2px); }
+      30%, 50%, 70% { transform: translateX(-4px); }
+      40%, 60% { transform: translateX(4px); }
+    }
+    .shake { animation: shake 0.4s var(--ease-out); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+      align-items: center;
+    }
+    .filters label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .icon-btn {
+      width: 40px; height: 40px;
+      display: grid; place-items: center;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 0;
+    }
+    .icon-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+    /* Skeleton loading states */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-sm);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, var(--bg-hover), transparent);
+      animation: shimmer 1.4s infinite;
+    }
+    @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+    .kpi-skel .value { height: 24px; width: 70%; margin-bottom: 4px; }
+    .kpi-skel .label { height: 10px; width: 50%; }
+    .row-skel td > span { display: block; height: 11px; border-radius: 3px; }
+    .filters-sticky {
+      position: sticky;
+      top: 74px;
+      z-index: 5;
+    }
+    /* Typography: cleaner letterforms and more consistent hierarchy */
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      letter-spacing: -0.005em;
+    }
+    h1, h2, h3, h4, button, input, select, textarea, .nav-btn, .badge {
+      font-family: inherit;
+    }
+    h1, h2, h3, h4 {
+      letter-spacing: -0.02em;
+    }
+    .loading { opacity: 0.65; pointer-events: none; }
+    .status-line { min-height: 18px; margin-top: 8px; font-size: 12px; }
+    .status-line.ok { color: var(--success); }
+    .status-line.bad { color: var(--danger); }
+    .table-scroll { overflow-x: auto; }
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 12px;
+      }
+      .brand { width: 100%; border-bottom: none; margin-bottom: 8px; padding-bottom: 8px; }
+      .sidebar-foot { width: 100%; margin-top: 8px; }
+      .two-col { grid-template-columns: 1fr; }
+      .content { padding: 16px 12px 36px; }
+      .topbar { padding: 12px; }
+      .sidebar { overflow-x: auto; }
+      .nav-btn { width: auto; white-space: nowrap; }
+    }
+  </style>
+
+</head>
+<body>
+  <aside class="sidebar" id="sidebar" style="display:none;">
+    <div class="brand">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">MC</div>
+        <div>
+          <h1>MeasureCraft</h1>
+          <p>Research dashboard</p>
+        </div>
+      </div>
+      <p>AI takeoff study — Housing construction, Sri Lanka</p>
+    </div>
+    <button class="nav-btn active" data-panel="overview" aria-current="page"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>Overview</button>
+    <button class="nav-btn" data-panel="participants"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.5 2.5-6 5.5-6s5.5 2.5 5.5 6"/><circle cx="17.5" cy="7.5" r="2.3"/><path d="M15 14.2c2.6.3 4.5 2.6 4.5 5.8"/></svg></span>Participants</button>
+    <button class="nav-btn" data-panel="projects"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></span>Projects &amp; Drawings</button>
+    <button class="nav-btn" data-panel="sessions"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span>Sessions</button>
+    <button class="nav-btn" data-panel="measurements"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 16 16 4l4 4L8 20z"/><path d="m9 11 2 2M12.5 7.5l2 2"/></svg></span>Measurements</button>
+    <button class="nav-btn" data-panel="accuracy"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.8" fill="currentColor"/></svg></span>AI Accuracy</button>
+    <button class="nav-btn" data-panel="aiHuman"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1.5"/><path d="M17 4a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-2v4l-3-4" /></svg></span>AI vs Human</button>
+    <button class="nav-btn" data-panel="modes"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v18M4 8l8-5 8 5M4 16l8 5 8-5"/></svg></span>Simple vs Pro</button>
+    <button class="nav-btn" data-panel="corrections"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 2.6 5.9"/><path d="M4 20v-5h5"/></svg></span>Corrections</button>
+    <button class="nav-btn" data-panel="groundtruth"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="3.2"/></svg></span>Ground Truth</button>
+    <button class="nav-btn" data-panel="exports"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></span>Exports</button>
+    <div class="sidebar-foot">
+      <div class="theme-toggle" role="group" aria-label="Color theme">
+        <button type="button" id="themeLight" class="active" title="Light mode">Light</button>
+        <button type="button" id="themeDark" title="Dark mode">Dark</button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div id="authGate" class="auth-gate">
+      <h2>Researcher access</h2>
+      <p>Enter the <code>RESEARCH_ADMIN_TOKEN</code> to open the research dashboard. Participant personal data is not shown — IDs only.</p>
+      <label style="text-align:left;display:block;margin-bottom:10px;">Admin token
+        <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Research admin token" style="width:100%;margin-top:6px;" />
+      </label>
+      <button type="button" id="btnUnlock">Unlock dashboard</button>
+      <p class="hint" id="authMsg" style="margin-top:12px;"></p>
+    </div>
+
+    <div id="appShell" style="display:none;">
+      <div class="topbar">
+        <div>
+          <h2 id="panelTitle">Overview</h2>
+          <div class="hint">All figures computed from live research storage — never hard-coded.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="secondary" id="btnRefresh">Refresh data</button>
+          <span class="hint mono" id="lastRefresh"></span>
+        </div>
+      </div>
+      <div class="content">
+        <!-- OVERVIEW -->
+        <section class="panel active" id="panel-overview">
+          <div class="kpi-grid" id="kpiGrid"></div>
+          <div class="charts">
+            <div class="card"><h3>Measurements over time</h3><div class="chart-box"><canvas id="chartTime"></canvas></div></div>
+            <div class="card"><h3>Simple vs Pro volume</h3><div class="chart-box"><canvas id="chartMode"></canvas></div></div>
+            <div class="card"><h3>Quantity error by type</h3><div class="chart-box"><canvas id="chartError"></canvas></div></div>
+            <div class="card"><h3>Correction actions</h3><div class="chart-box"><canvas id="chartCorr"></canvas></div></div>
+          </div>
+          <div class="card">
+            <h3>Research questions — current evidence</h3>
+            <div id="researchAnswers" class="muted" style="font-size:13px;line-height:1.6;"></div>
+          </div>
+        </section>
+
+        <!-- PARTICIPANTS -->
+        <section class="panel" id="panel-participants">
+          <div class="card">
+            <h3>Participants (anonymous IDs)</h3>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>ID</th><th>Sessions</th><th>Projects</th><th>Drawings</th><th>Measurements</th>
+                <th>Simple</th><th>Pro</th><th>AI-assisted</th><th>Manual</th><th>Corrections</th>
+                <th>Avg time (min)</th><th>Last activity</th>
+              </tr></thead>
+              <tbody id="tbodyParticipants"></tbody>
+            </table></div>
+            <p class="muted" id="partCount" style="margin-top:10px;font-size:12px;"></p>
+          </div>
+        </section>
+
+        <!-- PROJECTS -->
+        <section class="panel" id="panel-projects">
+          <div class="card">
+            <h3>Projects &amp; drawings (kept separate)</h3>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>Project</th><th>Drawing</th><th>Participant</th><th>Mode</th><th>Revision</th>
+                <th>File</th><th>Uploaded</th><th>Scale</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="tbodyProjects"></tbody>
+            </table></div>
+            <p class="muted" id="projCount" style="margin-top:10px;font-size:12px;"></p>
+          </div>
+          <div class="card">
+            <h3>Stored drawings</h3>
+            <div class="scroll"><table>
+              <thead><tr><th>Drawing</th><th>File</th><th>Participant</th><th>Uploaded</th><th>Download</th></tr></thead>
+              <tbody id="tbodyDrawings"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- SESSIONS -->
+        <section class="panel" id="panel-sessions">
+          <div class="card">
+            <h3>Research sessions</h3>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>Session</th><th>Participant</th><th>Mode</th><th>Started</th><th>Ended</th>
+                <th>Duration (min)</th><th>Project</th><th>Drawing</th>
+              </tr></thead>
+              <tbody id="tbodySessions"></tbody>
+            </table></div>
+            <p class="muted" id="sessCount" style="margin-top:10px;font-size:12px;"></p>
+          </div>
+        </section>
+
+        <!-- MEASUREMENTS -->
+        <section class="panel" id="panel-measurements">
+          <div class="card filters-sticky">
+            <h3>Filters</h3>
+            <div class="filters">
+              <label>Participant<input id="fPart" placeholder="P01" /></label>
+              <label>Mode<select id="fMode"><option value="">All</option><option>Simple</option><option>Pro</option></select></label>
+              <label>Drawing<input id="fDwg" placeholder="DWG-0001" /></label>
+              <label>Type<input id="fType" placeholder="wall / slab" /></label>
+              <label>Corrected<select id="fCorr"><option value="">All</option><option value="true">Yes</option><option value="false">No</option></select></label>
+              <button type="button" id="btnFilter">Apply filters</button><span id="filterStatus" class="hint" aria-live="polite"></span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Measurement records</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 10px;">Columns separate AI · User · Reference · Final. Missing values show N/A (never forced to 0 for accuracy).</p>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>Record</th><th>Part.</th><th>Mode</th><th>Type</th><th>AI</th><th>User</th>
+                <th>Reference</th><th>Final</th><th>Δ%</th><th>Corr.</th><th>Time (min)</th><th>Date</th>
+              </tr></thead>
+              <tbody id="tbodyMeas"></tbody>
+            </table></div>
+            <p class="muted" id="measCount" style="margin-top:10px;font-size:12px;"></p>
+          </div>
+        </section>
+
+        <!-- ACCURACY -->
+        <section class="panel" id="panel-accuracy">
+          <div class="card">
+            <h3>Quantity error by element type</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 10px;">Error % only when both values exist. Empty pairs are excluded — not treated as zero.</p>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>Element</th><th>Rows</th><th>With AI</th><th>With Ref</th><th>Corrections</th>
+                <th>Mean AI vs Ref %</th><th>Mean Final vs Ref %</th><th>Mean AI vs Final %</th>
+              </tr></thead>
+              <tbody id="tbodyAccuracy"></tbody>
+            </table></div>
+          </div>
+          <div class="card">
+            <h3>Detection accuracy (IoU / Precision / Recall / F1)</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 10px;">From reviewed annotations when geometric ground truth is available.</p>
+            <div id="detectAccBox" class="empty">No annotation-based detection metrics yet.</div>
+            <div class="scroll" style="margin-top:10px;"><table>
+              <thead><tr><th>Element</th><th>TP</th><th>FP</th><th>FN</th><th>Precision</th><th>Recall</th><th>F1</th><th>Mean IoU</th></tr></thead>
+              <tbody id="tbodyDetect"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- AI VS HUMAN -->
+        <section class="panel" id="panel-aiHuman">
+          <div class="card">
+            <h3>AI vs Human / Ground Truth</h3>
+            <div class="scroll"><table>
+              <thead><tr>
+                <th>Record</th><th>Type</th><th>AI</th><th>Human</th><th>Reference</th><th>Final</th>
+                <th>AI Error %</th><th>Final Error %</th>
+              </tr></thead>
+              <tbody id="tbodyAiHuman"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- MODES -->
+        <section class="panel" id="panel-modes">
+          <div class="two-col" id="modeCards"></div>
+          <div class="card"><h3>Mode comparison chart</h3><div class="chart-box"><canvas id="chartModeDetail"></canvas></div></div>
+        </section>
+
+        <!-- CORRECTIONS -->
+        <section class="panel" id="panel-corrections">
+          <div class="card">
+            <h3>Element lifecycle events</h3>
+            <div id="corrSummary" class="kpi-grid"></div>
+            <div class="scroll" style="margin-top:12px;"><table>
+              <thead><tr>
+                <th>Time</th><th>Action</th><th>Participant</th><th>Type</th><th>Label</th>
+                <th>Source</th><th>Mode</th><th>Drawing</th>
+              </tr></thead>
+              <tbody id="tbodyEvents"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- GROUND TRUTH -->
+        <section class="panel" id="panel-groundtruth">
+          <div class="card">
+            <h3>Set reference (ground truth) quantity</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 12px;">Reference never overwrites AI or final values. Used only for error calculation.</p>
+            <div class="filters">
+              <label>Drawing ID<input id="gtDwg" placeholder="DWG-0001" /></label>
+              <label>Element type<input id="gtType" placeholder="wall" /></label>
+              <label>Reference value<input id="gtVal" type="number" step="any" /></label>
+              <label>Unit<input id="gtUnit" placeholder="m²" /></label>
+              <label>Notes<input id="gtNotes" placeholder="optional" /></label>
+              <button type="button" id="btnGtSave">Save reference</button>
+            </div>
+            <p class="muted" id="gtMsg" style="font-size:12px;"></p>
+          </div>
+          <div class="card">
+            <h3>Stored ground-truth quantities</h3>
+            <div class="scroll"><table>
+              <thead><tr><th>Drawing</th><th>Type</th><th>Value</th><th>Unit</th><th>Notes</th><th>Updated</th></tr></thead>
+              <tbody id="tbodyGt"></tbody>
+            </table></div>
+          </div>
+        </section>
+
+        <!-- EXPORTS -->
+        <section class="panel" id="panel-exports">
+          <div class="card">
+            <h3>Research data export</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 12px;">Suitable for Excel, SPSS, Python, R. Explicit researcher action only — nothing is auto-trained.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button type="button" id="btnCsv">Export CSV</button>
+              <button type="button" id="btnJson">Export JSON</button>
+              <button type="button" class="secondary" id="btnTrain">AI training export (JSON)</button>
+              <button type="button" class="secondary" id="btnAnnot">Annotation export</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>YOLO dataset export</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 12px;">
+              Runs <code>scripts/export-yolo.js</code> on the server and returns a summary.
+              On free Render this is often unreliable (disk / time limits). Prefer downloading
+              <strong>Annotation export</strong> or <strong>AI training export</strong> and building the YOLO dataset locally:
+              <code>node scripts/export-yolo.js --out ./yolo-dataset</code>
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+              <button type="button" class="secondary" id="btnYolo">Run YOLO export (server)</button>
+              <span class="muted" id="yoloStatus" style="font-size:12px;"></span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Data management</h3>
+            <p class="muted" style="font-size:12px;margin:0 0 12px;">Destructive actions require confirmation. Historical IDs are never silently rewritten.</p>
+            <button type="button" class="danger" id="btnClearAll">Clear all research data…</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  'use strict';
+  const TOKEN_KEY = 'mc-research-token';
+  let token = sessionStorage.getItem(TOKEN_KEY) || '';
+  let cache = {
+    summary: null, participants: [], projects: [], sessions: [],
+    measurements: [], accuracy: [], modes: null, corrections: null,
+    events: [], drawings: [], refs: {}, detect: null
+  };
+  const charts = {};
+
+  function $(id) { return document.getElementById(id); }
+  function toast(msg, type) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (type === 'error' ? ' error' : '');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { el.classList.remove('show'); }, 2800);
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function na(v) {
+    if (v == null || v === '') return '<span class="muted">N/A</span>';
+    return esc(v);
+  }
+  function numFmt(v, d) {
+    if (v == null || v === '' || !Number.isFinite(Number(v))) return null;
+    return Number(v).toFixed(d != null ? d : 2);
+  }
+  // Duration values are stored/returned in seconds; the dashboard always
+  // displays them in minutes for readability.
+  function secToMin(v, d) {
+    if (v == null || v === '' || !Number.isFinite(Number(v))) return null;
+    return (Number(v) / 60).toFixed(d != null ? d : 1);
+  }
+  const REDUCE_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function animateCountUps(scope) {
+    if (REDUCE_MOTION) return;
+    const nodes = (scope || document).querySelectorAll('[data-countup]');
+    nodes.forEach(el => {
+      const raw = el.getAttribute('data-countup');
+      const target = parseFloat(raw);
+      if (!Number.isFinite(target) || /[^\d.\-]/.test(raw)) return; // leave non-numeric ("N/A", "3 / 5") untouched
+      const decimals = (raw.split('.')[1] || '').length;
+      const duration = 500;
+      const start = performance.now();
+      function tick(now) {
+        const p = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = (target * eased).toFixed(decimals);
+        if (p < 1) requestAnimationFrame(tick);
+        else el.textContent = raw;
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+  function themeColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function chartColor(key) {
+    const map = {
+      accent: '--accent', blue: '--blue', violet: '--violet',
+      warning: '--warning', danger: '--danger', success: '--success', muted: '--text-tertiary'
+    };
+    return themeColor(map[key] || '--accent') || '#B8863B';
+  }
+  function chartOptions(opts) {
+    opts = opts || {};
+    const gridColor = themeColor('--border-subtle') || 'rgba(107,97,85,0.15)';
+    const tickColor = themeColor('--text-tertiary') || '#9C9284';
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: REDUCE_MOTION ? false : { duration: 600, easing: 'easeOutCubic' },
+      plugins: {
+        legend: { display: !!opts.legend, labels: { color: tickColor, font: { family: "'Work Sans', sans-serif", size: 11 } } },
+        tooltip: {
+          backgroundColor: themeColor('--card-bg') || '#fff',
+          titleColor: themeColor('--text-primary') || '#221F1C',
+          bodyColor: themeColor('--text-secondary') || '#6B6155',
+          borderColor: themeColor('--border-color') || '#DED5C2',
+          borderWidth: 1, padding: 10, cornerRadius: 8, displayColors: true
+        }
+      },
+      scales: {
+        x: { ticks: { color: tickColor, font: { size: 11 } }, grid: { color: gridColor } },
+        y: { ticks: { color: tickColor, font: { size: 11 } }, grid: { color: gridColor }, beginAtZero: true }
+      }
+    };
+  }
+  function headers() {
+    const h = { 'Content-Type': 'application/json' };
+    if (token) h['X-Research-Token'] = token;
+    return h;
+  }
+  async function api(path, opts) {
+    const res = await fetch(path, Object.assign({ headers: headers() }, opts || {}));
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) {
+      const err = new Error(data.error || 'Unauthorized — check RESEARCH_ADMIN_TOKEN');
+      err.status = res.status;
+      throw err;
+    }
+    if (!res.ok) {
+      const err = new Error(data.error || ('HTTP ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function showSkeletons() {
+    if (REDUCE_MOTION) return;
+    const kpiGrid = $('kpiGrid');
+    if (kpiGrid && !kpiGrid.children.length) {
+      kpiGrid.innerHTML = Array.from({ length: 8 }).map(() =>
+        '<div class="kpi kpi-skel"><div class="value skeleton"></div><div class="label skeleton"></div></div>'
+      ).join('');
+    }
+    ['tbodyParticipants', 'tbodyProjects', 'tbodyDrawings', 'tbodySessions', 'tbodyMeas', 'tbodyEvents'].forEach(id => {
+      const tbody = $(id);
+      if (!tbody || tbody.children.length) return;
+      const cols = (tbody.closest('table').querySelector('thead tr') || {}).children || [];
+      const colCount = cols.length || 6;
+      tbody.innerHTML = Array.from({ length: 4 }).map(() =>
+        '<tr class="row-skel">' + Array.from({ length: colCount }).map(() =>
+          '<td><span class="skeleton"></span></td>').join('') + '</tr>'
+      ).join('');
+    });
+  }
+
+  async function loadAll() {
+    showSkeletons();
+    const q = new URLSearchParams();
+    const part = ($('fPart') && $('fPart').value || '').trim();
+    const mode = ($('fMode') && $('fMode').value) || '';
+    const dwg = ($('fDwg') && $('fDwg').value || '').trim();
+    const type = ($('fType') && $('fType').value || '').trim();
+    const corr = ($('fCorr') && $('fCorr').value) || '';
+
+    if (part) q.set('participantId', part);
+    if (mode) q.set('mode', mode);
+    if (dwg) q.set('drawingId', dwg);
+    if (type) q.set('measurementType', type);
+    // The API supports filtering for true. For false, filter the returned
+    // rows client-side because the backend intentionally does not interpret
+    // userCorrection=false as a filter.
+    if (corr === 'true') q.set('userCorrection', 'true');
+    q.set('limit', '5000');
+
+    const endpointJobs = [
+      ['summary', '/api/research/summary', {}],
+      ['participants', '/api/research/participants?' + q.toString(), { participants: [] }],
+      ['projects', '/api/research/projects?' + q.toString(), { projects: [] }],
+      ['sessions', '/api/research/sessions?' + q.toString(), { sessions: [] }],
+      ['records', '/api/research/records?' + q.toString(), { records: [] }],
+      ['accuracy', '/api/research/quantity-accuracy?' + q.toString(), { byType: [] }],
+      ['modes', '/api/research/mode-comparison?' + q.toString(), { comparison: null }],
+      ['corrections', '/api/research/corrections?' + q.toString(), {}],
+      ['events', '/api/research/element-events?' + new URLSearchParams(Object.assign(
+        { limit: '500' },
+        part ? { participantId: part } : {},
+        mode ? { mode: mode } : {},
+        dwg ? { drawingId: dwg } : {}
+      )).toString(), { events: [] }],
+      ['drawings', '/api/research/drawings', { drawings: [] }],
+      ['refs', '/api/research/reference-quantities', { referenceQuantities: {} }],
+      ['detect', '/api/research/accuracy-baseline?' + q.toString(), null]
+    ];
+
+    const results = await Promise.all(endpointJobs.map(async ([key, path, fallback]) => {
+      try {
+        return { key, data: await api(path) };
+      } catch (error) {
+        error.endpointKey = key;
+        throw error;
+      }
+    }).map(p => p.catch(error => ({ key: error.endpointKey, error }))));
+
+    const authError = results.find(r => r.error && (r.error.status === 401 || r.error.status === 403));
+    if (authError) {
+      token = '';
+      sessionStorage.removeItem(TOKEN_KEY);
+      $('authGate').style.display = '';
+      $('sidebar').style.display = 'none';
+      $('appShell').style.display = 'none';
+      throw authError.error;
+    }
+
+    const errors = results.filter(r => r.error);
+    const byKey = Object.fromEntries(results.map(r => [r.key, r.data]));
+
+    // Summary is the only required dataset. If it fails, do not render a
+    // misleading empty dashboard.
+    if (!byKey.summary) {
+      throw (results.find(r => r.key === 'summary')?.error || new Error('Unable to load research summary'));
+    }
+
+    const summary = byKey.summary;
+    const participants = byKey.participants || { participants: [] };
+    const projects = byKey.projects || { projects: [] };
+    const sessions = byKey.sessions || { sessions: [] };
+    const records = byKey.records || { records: [] };
+    const accuracy = byKey.accuracy || { byType: [] };
+    const modes = byKey.modes || { comparison: null };
+    const corrections = byKey.corrections || {};
+    const events = byKey.events || { events: [] };
+    const drawings = byKey.drawings || { drawings: [] };
+    const refs = byKey.refs || { referenceQuantities: {} };
+
+    cache.summary = summary.stats || summary.summary || summary;
+    cache.participants = participants.participants || [];
+    cache.projects = projects.projects || projects.rows || [];
+    cache.sessions = sessions.sessions || sessions.rows || [];
+    cache.measurements = records.records || records.rows || records.measurements || [];
+
+    if (corr === 'false') {
+      cache.measurements = cache.measurements.filter(m => !m.userCorrection);
+    }
+
+    cache.accuracy = accuracy.byType || [];
+    cache.modes = modes.comparison || null;
+    cache.corrections = corrections;
+    cache.events = events.events || [];
+    cache.drawings = drawings.drawings || [];
+    cache.refs = refs.quantities || refs.referenceQuantities || refs || {};
+    cache.detect = byKey.detect || null;
+
+    renderAll();
+    $('lastRefresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    if (errors.length) {
+      toast(errors.length + ' optional dashboard section' + (errors.length === 1 ? '' : 's') + ' could not be loaded', 'error');
+    }
+  }
+
+  function renderKpis() {
+    const s = cache.summary || {};
+    const items = [
+      ['Participants', s.uniqueParticipants],
+      ['Projects', s.totalProjects],
+      ['Drawings', s.totalDrawings],
+      ['Measurements', s.totalMeasurements],
+      ['Sessions', s.totalSessions],
+      ['AI qty rows', s.aiMeasurementRows],
+      ['Reviewed / final', s.finalRows],
+      ['Corrections', s.correctedCount],
+      ['Median error %', s.medianAbsPctErrorVsReference != null ? s.medianAbsPctErrorVsReference : (s.meanAbsPctErrorVsReference != null ? s.meanAbsPctErrorVsReference : 'N/A')],
+      ['Mean error %', s.primaryMeanAbsPct != null ? s.primaryMeanAbsPct : 'N/A'],
+      ['Avg meas. time (min)', s.avgMeasurementDurationSec != null ? secToMin(s.avgMeasurementDurationSec) : 'N/A'],
+      ['Simple / Pro', (s.simpleCount || 0) + ' / ' + (s.proCount || 0)],
+    ];
+    $('kpiGrid').innerHTML = items.map(([l, v]) =>
+      '<div class="kpi"><div class="value" data-countup="' + esc(v == null ? 0 : v) + '">' + esc(v == null ? 0 : v) + '</div><div class="label">' + esc(l) + '</div></div>'
+    ).join('');
+    animateCountUps($('kpiGrid'));
+
+    const answers = [];
+    answers.push('<strong>1. AI accuracy:</strong> ' +
+      (s.meanAbsPctErrorVsReference != null
+        ? 'Median abs. error vs reference/AI baseline ≈ <span class="mono">' + esc(s.meanAbsPctErrorVsReference) + '%</span> (' +
+          (s.rowsWithError || 0) + ' comparable rows).'
+        : 'Not enough paired AI/reference rows yet.'));
+    answers.push('<strong>2–3. Element strengths/weaknesses:</strong> see AI Accuracy panel (by type).');
+    answers.push('<strong>4. Human correction:</strong> ' + (s.correctedCount || 0) +
+      ' corrected rows (' + (s.correctionRate || 0) + '% of measurements).');
+    answers.push('<strong>5–6. Time:</strong> avg measurement duration ' +
+      (s.avgMeasurementDurationSec != null ? secToMin(s.avgMeasurementDurationSec) + ' min' : 'N/A') +
+      '. Time-saved % requires paired manual vs AI-assisted sessions on the same drawing.');
+    answers.push('<strong>8. Simple vs Pro:</strong> ' + (s.simpleCount || 0) + ' Simple / ' +
+      (s.proCount || 0) + ' Pro measurement rows.');
+    answers.push('<strong>9–11. Corrections, ground truth, participants:</strong> use Corrections, Ground Truth, and Participants panels.');
+    $('researchAnswers').innerHTML = answers.map(a => '<div style="margin-bottom:8px;">' + a + '</div>').join('');
+  }
+
+  function destroyChart(key) {
+    if (charts[key]) { charts[key].destroy(); delete charts[key]; }
+  }
+
+  function renderCharts() {
+    if (typeof Chart === 'undefined') return;
+    const meas = cache.measurements || [];
+    const byDay = {};
+    meas.forEach(m => {
+      const d = (m.date || (m.createdAt || '').slice(0, 10) || 'unknown');
+      byDay[d] = (byDay[d] || 0) + 1;
+    });
+    const days = Object.keys(byDay).sort();
+    destroyChart('time');
+    charts.time = new Chart($('chartTime'), {
+      type: 'line',
+      data: {
+        labels: days,
+        datasets: [{
+          label: 'Records',
+          data: days.map(d => byDay[d]),
+          borderColor: chartColor('accent'),
+          backgroundColor: chartColor('accent') + '26',
+          pointBackgroundColor: chartColor('accent'),
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          tension: 0.35,
+          fill: true
+        }]
+      },
+      options: chartOptions({ legend: false })
+    });
+
+    const s = cache.summary || {};
+    destroyChart('mode');
+    charts.mode = new Chart($('chartMode'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Simple', 'Pro'],
+        datasets: [{
+          data: [s.simpleCount || 0, s.proCount || 0],
+          backgroundColor: [chartColor('violet'), chartColor('blue')],
+          borderColor: themeColor('--card-bg') || '#fff',
+          borderWidth: 2,
+          hoverOffset: 6
+        }]
+      },
+      options: Object.assign(chartOptions({ legend: true }), { cutout: '68%' })
+    });
+
+    const acc = cache.accuracy || [];
+    destroyChart('error');
+    charts.error = new Chart($('chartError'), {
+      type: 'bar',
+      data: {
+        labels: acc.map(r => r.elementType),
+        datasets: [{
+          label: 'Mean AI vs Ref %',
+          data: acc.map(r => r.meanAiVsRefErrorPct),
+          backgroundColor: chartColor('accent'),
+          borderRadius: 4,
+          maxBarThickness: 36
+        }]
+      },
+      options: chartOptions({ legend: false })
+    });
+
+    const corr = (cache.corrections && cache.corrections.byAction) || {};
+    const corrKeys = Object.keys(corr);
+    destroyChart('corr');
+    charts.corr = new Chart($('chartCorr'), {
+      type: 'bar',
+      data: {
+        labels: corrKeys,
+        datasets: [{ label: 'Events', data: corrKeys.map(k => corr[k]), backgroundColor: chartColor('warning'), borderRadius: 4, maxBarThickness: 36 }]
+      },
+      options: chartOptions({ legend: false })
+    });
+  }
+
+  function renderParticipants() {
+    const rows = cache.participants || [];
+    $('tbodyParticipants').innerHTML = rows.length ? rows.map(r => '<tr>' +
+      '<td class="mono">' + esc(r.participantId) + '</td>' +
+      '<td>' + esc(r.sessions) + '</td><td>' + esc(r.projects) + '</td><td>' + esc(r.drawings) + '</td>' +
+      '<td>' + esc(r.measurements) + '</td><td>' + esc(r.simpleCount) + '</td><td>' + esc(r.proCount) + '</td>' +
+      '<td>' + esc(r.aiAssisted) + '</td><td>' + esc(r.manual) + '</td><td>' + esc(r.corrections) + '</td>' +
+      '<td>' + na(secToMin(r.avgMeasurementDurationSec, 1)) + '</td>' +
+      '<td class="mono">' + na(r.lastActivity && String(r.lastActivity).replace('T', ' ').slice(0, 19)) + '</td>' +
+      '</tr>').join('') : '<tr><td colspan="12" class="empty">No participants yet</td></tr>';
+    $('partCount').textContent = rows.length + ' participant(s)';
+  }
+
+  function renderProjects() {
+    const rows = cache.projects || [];
+    $('tbodyProjects').innerHTML = rows.length ? rows.map(p => '<tr>' +
+      '<td class="mono">' + esc(p.projectId) + '</td>' +
+      '<td class="mono">' + esc(p.drawingId) + '</td>' +
+      '<td class="mono">' + esc(p.participantId) + '</td>' +
+      '<td><span class="tag ' + (p.mode === 'Pro' ? 'pro' : 'simple') + '">' + esc(p.mode || '—') + '</span></td>' +
+      '<td>' + esc(p.revision || 'ORIGINAL') + '</td>' +
+      '<td>' + esc(p.fileName || '—') + '</td>' +
+      '<td class="mono">' + esc((p.uploadedAt || '').replace('T', ' ').slice(0, 19)) + '</td>' +
+      '<td>' + esc(p.scaleNote || '—') + '</td>' +
+      '<td>' + (p.drawingId
+        ? '<button type="button" class="secondary dl-drawing" data-id="' + esc(p.drawingId) + '" data-kind="original" style="padding:4px 10px;font-size:12px;">Original</button>'
+          + (p.hasMarked ? ' <button type="button" class="secondary dl-drawing" data-id="' + esc(p.drawingId) + '" data-kind="marked" style="padding:4px 10px;font-size:12px;">Marked</button>' : '')
+        : '—') + '</td>' +
+      '</tr>').join('') : '<tr><td colspan="9" class="empty">No projects registered yet</td></tr>';
+    $('projCount').textContent = rows.length + ' project row(s) · drawings stay unique (DWG-####)';
+
+    const dwgs = cache.drawings || [];
+    $('tbodyDrawings').innerHTML = dwgs.length ? dwgs.map(d => '<tr>' +
+      '<td class="mono">' + esc(d.drawingId) + '</td>' +
+      '<td>' + esc(d.fileName || d.name || '—') + '</td>' +
+      '<td class="mono">' + esc(d.participantId || '—') + '</td>' +
+      '<td class="mono">' + esc((d.uploadedAt || '').replace('T', ' ').slice(0, 19) || '—') + '</td>' +
+      '<td>' + (d.drawingId
+        ? '<button type="button" class="secondary dl-drawing" data-id="' + esc(d.drawingId) + '" data-kind="original" style="padding:4px 10px;font-size:12px;">Original</button>'
+          + ' <button type="button" class="secondary dl-drawing" data-id="' + esc(d.drawingId) + '" data-kind="marked" style="padding:4px 10px;font-size:12px;">Marked</button>'
+        : '—') + '</td></tr>').join('') : '<tr><td colspan="5" class="empty">No stored drawings</td></tr>';
+  }
+
+  function renderSessions() {
+    const rows = cache.sessions || [];
+    $('tbodySessions').innerHTML = rows.length ? rows.map(s => {
+      const durSec = s.durationSec != null ? s.durationSec
+        : (s.startedAt && s.endedAt
+          ? Math.max(0, Math.round((new Date(s.endedAt) - new Date(s.startedAt)) / 1000))
+          : null);
+      return '<tr>' +
+        '<td class="mono">' + esc(s.sessionId) + '</td>' +
+        '<td class="mono">' + esc(s.participantId) + '</td>' +
+        '<td><span class="tag ' + (String(s.mode) === 'Pro' ? 'pro' : 'simple') + '">' + esc(s.mode) + '</span></td>' +
+        '<td class="mono">' + esc((s.startedAt || '').replace('T', ' ').slice(0, 19)) + '</td>' +
+        '<td class="mono">' + na(s.endedAt && String(s.endedAt).replace('T', ' ').slice(0, 19)) + '</td>' +
+        '<td>' + na(secToMin(durSec, 1)) + '</td>' +
+        '<td class="mono">' + na(s.projectId) + '</td>' +
+        '<td class="mono">' + na(s.drawingId) + '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="empty">No sessions</td></tr>';
+    $('sessCount').textContent = rows.length + ' session(s)';
+  }
+
+  function renderMeasurements() {
+    const rows = cache.measurements || [];
+    $('tbodyMeas').innerHTML = rows.length ? rows.map(m => {
+      const finalV = m.finalAcceptedMeasurement != null ? m.finalAcceptedMeasurement : m.userMeasurement;
+      return '<tr>' +
+        '<td class="mono">' + esc(m.recordId) + '</td>' +
+        '<td class="mono">' + esc(m.participantId) + '</td>' +
+        '<td><span class="tag ' + (m.measurementMode === 'Pro' ? 'pro' : 'simple') + '">' + esc(m.measurementMode) + '</span></td>' +
+        '<td>' + esc(m.measurementType) + '</td>' +
+        '<td class="mono">' + na(m.aiMeasurement) + '</td>' +
+        '<td class="mono">' + na(m.userMeasurement) + '</td>' +
+        '<td class="mono">' + na(m.referenceMeasurement) + '</td>' +
+        '<td class="mono">' + na(finalV) + '</td>' +
+        '<td class="mono">' + na(numFmt(m.differencePct, 2)) + '</td>' +
+        '<td>' + (m.userCorrection ? '<span class="tag corr">Yes</span>' : '—') + '</td>' +
+        '<td>' + na(secToMin(m.measurementDurationSec, 1)) + '</td>' +
+        '<td class="mono">' + esc(m.date || (m.createdAt || '').slice(0, 10)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="12" class="empty">No measurement records</td></tr>';
+    $('measCount').textContent = rows.length + ' record(s) shown';
+
+    // AI vs Human subset
+    const paired = rows.filter(m =>
+      m.aiMeasurement != null || m.referenceMeasurement != null || m.userMeasurement != null
+    ).slice(0, 300);
+    $('tbodyAiHuman').innerHTML = paired.length ? paired.map(m => {
+      const finalV = m.finalAcceptedMeasurement != null ? m.finalAcceptedMeasurement : m.userMeasurement;
+      const ai = m.aiMeasurement != null ? Number(m.aiMeasurement) : null;
+      const ref = m.referenceMeasurement != null ? Number(m.referenceMeasurement) : null;
+      const fin = finalV != null ? Number(finalV) : null;
+      let aiErr = null, finErr = null;
+      if (ai != null && ref != null && Math.abs(ref) > 1e-9) aiErr = Math.abs(ai - ref) / Math.abs(ref) * 100;
+      if (fin != null && ref != null && Math.abs(ref) > 1e-9) finErr = Math.abs(fin - ref) / Math.abs(ref) * 100;
+      return '<tr>' +
+        '<td class="mono">' + esc(m.recordId) + '</td>' +
+        '<td>' + esc(m.measurementType) + '</td>' +
+        '<td class="mono">' + na(m.aiMeasurement) + '</td>' +
+        '<td class="mono">' + na(m.userMeasurement) + '</td>' +
+        '<td class="mono">' + na(m.referenceMeasurement) + '</td>' +
+        '<td class="mono">' + na(finalV) + '</td>' +
+        '<td class="mono">' + na(numFmt(aiErr, 2)) + '</td>' +
+        '<td class="mono">' + na(numFmt(finErr, 2)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="empty">No comparable AI/human rows</td></tr>';
+  }
+
+  function renderAccuracy() {
+    const rows = cache.accuracy || [];
+    $('tbodyAccuracy').innerHTML = rows.length ? rows.map(r => '<tr>' +
+      '<td>' + esc(r.elementType) + '</td>' +
+      '<td>' + esc(r.count) + '</td>' +
+      '<td>' + esc(r.withAi) + '</td>' +
+      '<td>' + esc(r.withRef) + '</td>' +
+      '<td>' + esc(r.corrections) + '</td>' +
+      '<td class="mono">' + na(numFmt(r.meanAiVsRefErrorPct, 2)) + '</td>' +
+      '<td class="mono">' + na(numFmt(r.meanFinalVsRefErrorPct, 2)) + '</td>' +
+      '<td class="mono">' + na(numFmt(r.meanAiVsFinalErrorPct, 2)) + '</td></tr>'
+    ).join('') : '<tr><td colspan="8" class="empty">No quantity accuracy data yet</td></tr>';
+
+    const det = cache.detect;
+    const byType = (det && (det.byType || det.types || det.results)) || null;
+    if (byType && typeof byType === 'object') {
+      const list = Array.isArray(byType) ? byType : Object.keys(byType).map(k => Object.assign({ elementType: k }, byType[k]));
+      const thresholdText = det.iouThreshold != null ? ' · IoU match threshold ' + numFmt(det.iouThreshold, 2) : '';
+      $('detectAccBox').textContent = (det.summary || det.message || (list.length + ' element type(s) with annotation metrics')) + thresholdText;
+      $('tbodyDetect').innerHTML = list.map(r => {
+        const tp = r.tp != null ? r.tp : r.truePositive;
+        const fp = r.fp != null ? r.fp : r.falsePositive;
+        const fn = r.fn != null ? r.fn : r.falseNegative;
+        const precision = r.precision != null ? Number(r.precision) : null;
+        const recall = r.recall != null ? Number(r.recall) : null;
+        const f1 = r.f1 != null ? Number(r.f1) :
+          (precision != null && recall != null && (precision + recall) > 0
+            ? (2 * precision * recall) / (precision + recall)
+            : null);
+        const iou = r.meanIoU != null ? r.meanIoU : r.iou;
+        return '<tr>' +
+          '<td>' + esc(r.elementType || r.type) + '</td>' +
+          '<td>' + na(tp) + '</td><td>' + na(fp) + '</td><td>' + na(fn) + '</td>' +
+          '<td class="mono">' + na(numFmt(precision, 2)) + '</td>' +
+          '<td class="mono">' + na(numFmt(recall, 2)) + '</td>' +
+          '<td class="mono">' + na(numFmt(f1, 2)) + '</td>' +
+          '<td class="mono">' + na(numFmt(iou, 3)) + '</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="empty">No detection metrics</td></tr>';
+    } else {
+      $('detectAccBox').textContent = 'No annotation-based detection metrics yet. Review drawings and save annotations to populate Precision/Recall/F1/IoU.';
+      $('tbodyDetect').innerHTML = '<tr><td colspan="8" class="empty">—</td></tr>';
+    }
+  }
+
+  function renderModes() {
+    const c = cache.modes || {};
+    const simple = c.simple || {};
+    const pro = c.pro || {};
+    function card(title, m) {
+      return '<div class="card"><h3>' + esc(title) + '</h3>' +
+        '<div class="kpi-grid">' +
+        [['Participants', m.participants], ['Sessions', m.sessions], ['Measurements', m.measurements],
+         ['Avg duration (min)', m.avgDurationSec != null ? secToMin(m.avgDurationSec) : 'N/A'],
+         ['Corrections', m.corrections], ['Correction %', m.correctionRate != null ? m.correctionRate : 'N/A'],
+         ['AI-assisted', m.aiAssisted], ['AI-assisted %', m.aiAssistedRate != null ? m.aiAssistedRate : 'N/A']
+        ].map(([l, v]) => '<div class="kpi"><div class="value" data-countup="' + esc(v == null ? 0 : v) + '">' + esc(v == null ? 0 : v) + '</div><div class="label">' + esc(l) + '</div></div>').join('') +
+        '</div></div>';
+    }
+    $('modeCards').innerHTML = card('Simple Mode', simple) + card('Pro Mode', pro);
+    animateCountUps($('modeCards'));
+
+    if (typeof Chart !== 'undefined') {
+      destroyChart('modeDetail');
+      charts.modeDetail = new Chart($('chartModeDetail'), {
+        type: 'bar',
+        data: {
+          labels: ['Participants', 'Sessions', 'Measurements', 'Corrections', 'AI-assisted'],
+          datasets: [
+            { label: 'Simple', data: [simple.participants||0, simple.sessions||0, simple.measurements||0, simple.corrections||0, simple.aiAssisted||0], backgroundColor: chartColor('violet'), borderRadius: 4 },
+            { label: 'Pro', data: [pro.participants||0, pro.sessions||0, pro.measurements||0, pro.corrections||0, pro.aiAssisted||0], backgroundColor: chartColor('blue'), borderRadius: 4 }
+          ]
+        },
+        options: chartOptions({ legend: true })
+      });
+    }
+  }
+
+  function renderCorrections() {
+    const c = cache.corrections || {};
+    const by = c.byAction || {};
+    $('corrSummary').innerHTML = Object.keys(by).length
+      ? Object.keys(by).map(k => '<div class="kpi"><div class="value" data-countup="' + esc(by[k]) + '">' + esc(by[k]) + '</div><div class="label">' + esc(k) + '</div></div>').join('')
+      : '<div class="empty">No element events yet</div>';
+    animateCountUps($('corrSummary'));
+    const ev = cache.events || [];
+    $('tbodyEvents').innerHTML = ev.length ? ev.slice(0, 400).map(e => '<tr>' +
+      '<td class="mono">' + esc((e.ts || '').replace('T', ' ').slice(0, 19)) + '</td>' +
+      '<td><span class="tag">' + esc(e.action) + '</span></td>' +
+      '<td class="mono">' + esc(e.participantId) + '</td>' +
+      '<td>' + esc(e.elementType) + '</td>' +
+      '<td>' + esc(e.elementLabel || '—') + '</td>' +
+      '<td>' + esc(e.source || '—') + '</td>' +
+      '<td>' + esc(e.mode || '—') + '</td>' +
+      '<td class="mono">' + na(e.drawingId) + '</td></tr>'
+    ).join('') : '<tr><td colspan="8" class="empty">No events</td></tr>';
+  }
+
+  function renderGroundTruth() {
+    const refs = cache.refs || {};
+    const rows = [];
+    Object.keys(refs).forEach(dwg => {
+      const types = refs[dwg] || {};
+      Object.keys(types).forEach(t => {
+        const r = types[t] || {};
+        rows.push({ drawingId: dwg, type: t, value: r.value, unit: r.unit, notes: r.notes, updatedAt: r.updatedAt });
+      });
+    });
+    $('tbodyGt').innerHTML = rows.length ? rows.map(r => '<tr>' +
+      '<td class="mono">' + esc(r.drawingId) + '</td>' +
+      '<td>' + esc(r.type) + '</td>' +
+      '<td class="mono">' + na(r.value) + '</td>' +
+      '<td>' + na(r.unit) + '</td>' +
+      '<td>' + esc(r.notes || '') + '</td>' +
+      '<td class="mono">' + na(r.updatedAt && String(r.updatedAt).replace('T', ' ').slice(0, 19)) + '</td></tr>'
+    ).join('') : '<tr><td colspan="6" class="empty">No ground-truth quantities stored</td></tr>';
+  }
+
+  function renderAll() {
+    renderKpis();
+    renderCharts();
+    renderParticipants();
+    renderProjects();
+    renderSessions();
+    renderMeasurements();
+    renderAccuracy();
+    renderModes();
+    renderCorrections();
+    renderGroundTruth();
+  }
+
+  // Navigation
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const id = btn.dataset.panel;
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const panel = $('panel-' + id);
+      if (panel) panel.classList.add('active');
+      $('panelTitle').textContent = btn.textContent.trim();
+      requestAnimationFrame(() => Object.values(charts).forEach(chart => {
+        try { chart.resize(); } catch (_) {}
+      }));
+    });
+  });
+
+  $('btnUnlock').addEventListener('click', async () => {
+    token = ($('tokenInput').value || '').trim();
+    if (!token) {
+      $('authMsg').textContent = 'Enter the research admin token.';
+      $('authMsg').className = 'bad';
+      return;
+    }
+    sessionStorage.setItem(TOKEN_KEY, token);
+    $('authMsg').textContent = 'Checking…';
+    $('authMsg').className = 'hint';
+    $('btnUnlock').disabled = true;
+    try {
+      await api('/api/research/summary');
+      $('authGate').style.display = 'none';
+      $('sidebar').style.display = '';
+      $('appShell').style.display = '';
+      await loadAll();
+      toast('Dashboard unlocked');
+    } catch (err) {
+      $('authMsg').textContent = err.message || 'Access denied';
+      $('authMsg').className = 'bad';
+      const gate = document.getElementById('authGate');
+      gate.classList.remove('shake');
+      void gate.offsetWidth;
+      gate.classList.add('shake');
+    } finally {
+      $('btnUnlock').disabled = false;
+    }
+  });
+
+  $('tokenInput').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') $('btnUnlock').click();
+  });
+
+  $('btnRefresh').addEventListener('click', () => loadAll().then(() => toast('Refreshed')).catch(e => toast(e.message, 'error')));
+  $('btnFilter').addEventListener('click', () => {
+    $('filterStatus').textContent = 'Applying…';
+    loadAll()
+      .then(() => {
+        const active = [($('fPart').value || '').trim(), $('fMode').value, ($('fDwg').value || '').trim(), ($('fType').value || '').trim(), $('fCorr').value]
+          .filter(Boolean).length;
+        $('filterStatus').textContent = active ? active + ' filter' + (active === 1 ? '' : 's') + ' active' : 'Showing all measurements';
+        toast('Filters applied');
+      })
+      .catch(e => {
+        $('filterStatus').textContent = e.message || 'Filter failed';
+        toast(e.message, 'error');
+      });
+  });
+
+  $('btnGtSave').addEventListener('click', async () => {
+    try {
+      const drawingId = $('gtDwg').value.trim();
+      const measurementType = $('gtType').value.trim();
+      const rawValue = $('gtVal').value.trim();
+
+      if (!/^DWG-\d{1,10}$/.test(drawingId)) {
+        throw new Error('Drawing ID must look like DWG-0001.');
+      }
+      if (!measurementType) {
+        throw new Error('Element type is required.');
+      }
+      if (!rawValue) {
+        throw new Error('Reference value is required. Leave it blank only when you intentionally want to delete an existing reference.');
+      }
+      const value = Number(rawValue);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error('Reference value must be a number greater than 0.');
+      }
+
+      const body = {
+        drawingId,
+        measurementType,
+        value,
+        unit: $('gtUnit').value.trim() || null,
+        notes: $('gtNotes').value.trim() || null
+      };
+      await api('/api/research/reference-quantities', { method: 'POST', body: JSON.stringify(body) });
+      $('gtMsg').textContent = 'Saved.';
+      $('gtMsg').className = 'ok';
+      await loadAll();
+    } catch (err) {
+      $('gtMsg').textContent = err.message;
+      $('gtMsg').className = 'bad';
+    }
+  });
+
+  async function downloadDrawing(drawingId, kind) {
+    if (!drawingId) return;
+    if (!token) {
+      toast('Unlock the dashboard with the research token first', 'error');
+      return;
+    }
+    const path = kind === 'marked'
+      ? '/api/research/drawing/' + encodeURIComponent(drawingId) + '/marked'
+      : '/api/research/drawing/' + encodeURIComponent(drawingId);
+    try {
+      const res = await fetch(path, { headers: headers() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || ('Download failed (HTTP ' + res.status + ')'));
+      }
+      const blob = await res.blob();
+      let name = drawingId + (kind === 'marked' ? '_marked' : '');
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(cd);
+      if (m) name = decodeURIComponent(m[1].replace(/"/g, '').trim());
+      else {
+        const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+        if (ct.includes('pdf')) name += '.pdf';
+        else if (ct.includes('png')) name += '.png';
+        else if (ct.includes('jpeg') || ct.includes('jpg')) name += '.jpg';
+        else name += '.bin';
+      }
+      downloadBlob(blob, name);
+      toast('Downloaded ' + name);
+    } catch (e) {
+      toast(e.message || 'Download failed', 'error');
+    }
+  }
+
+  // Event delegation for drawing download buttons (token sent as header)
+  document.addEventListener('click', function (ev) {
+    const btn = ev.target && ev.target.closest && ev.target.closest('button.dl-drawing');
+    if (!btn) return;
+    ev.preventDefault();
+    downloadDrawing(btn.getAttribute('data-id'), btn.getAttribute('data-kind') || 'original');
+  });
+
+  function downloadBlob(blob, name) {
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  $('btnCsv').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/research/export?format=csv', { headers: headers() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || ('Export failed (HTTP ' + res.status + ')'));
+      }
+      downloadBlob(await res.blob(), 'measurecraft-research.csv');
+      toast('CSV export downloaded');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  $('btnJson').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/research/export?format=json', { headers: headers() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || ('Export failed (HTTP ' + res.status + ')'));
+      }
+      downloadBlob(await res.blob(), 'measurecraft-research.json');
+      toast('JSON export downloaded');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  $('btnTrain').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/research/training-export', { headers: headers() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || ('Export failed (HTTP ' + res.status + ')'));
+      }
+      downloadBlob(await res.blob(), 'measurecraft-training-export.json');
+      toast('Training export downloaded — review before any offline training');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  $('btnAnnot').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/research/annotation-export', { headers: headers() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || ('Export failed (HTTP ' + res.status + ')'));
+      }
+      downloadBlob(await res.blob(), 'measurecraft-annotations.json');
+      toast('Annotation export downloaded');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  $('btnYolo').addEventListener('click', async () => {
+    const statusEl = $('yoloStatus');
+    const btn = $('btnYolo');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Running on server (up to ~2 min)…';
+    try {
+      const res = await fetch('/api/research/yolo-export', {
+        method: 'POST',
+        headers: headers(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || data.stderr || ('YOLO export failed (HTTP ' + res.status + ')'));
+      }
+      const n = (data.manifest && (data.manifest.images || data.manifest.count)) || null;
+      const msg = n != null
+        ? ('YOLO export OK — ' + n + ' image(s). Out: ' + (data.outDir || 'server data/yolo-export'))
+        : ('YOLO export finished. Out: ' + (data.outDir || 'server data/yolo-export'));
+      if (statusEl) statusEl.textContent = msg;
+      toast(msg);
+      if (data.stdout) console.log('[yolo-export stdout]', data.stdout);
+      if (data.stderr) console.warn('[yolo-export stderr]', data.stderr);
+    } catch (e) {
+      const errMsg = e.message || 'YOLO export failed';
+      if (statusEl) statusEl.textContent = errMsg;
+      toast(errMsg, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+  $('btnClearAll').addEventListener('click', async () => {
+    if (!confirm('Delete ALL research data (measurements, sessions, events, bindings)? This cannot be undone.')) return;
+    if (!confirm('Final confirmation: clear entire research dataset?')) return;
+    const keepDrawings = confirm('Keep uploaded drawing files on disk/S3?\n\nOK = keep drawings\nCancel = delete drawings too');
+    try {
+      const result = await api('/api/research/clear-all', {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm: 'DELETE_ALL_RESEARCH_DATA',
+          keepDrawings: !!keepDrawings,
+        }),
+      });
+      if (result && result.success) {
+        toast('All research data cleared');
+      } else {
+        toast((result && result.error) || 'Clear failed', 'error');
+      }
+      await loadAll();
+    } catch (e) { toast(e.message || 'Clear failed', 'error'); }
+  });
+
+
+  // Theme: match Simple / Pro light–dark tokens
+  const THEME_KEY = 'mc-research-theme';
+  function applyTheme(mode) {
+    const m = mode === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', m);
+    try { localStorage.setItem(THEME_KEY, m); } catch (_) {}
+    const lightBtn = $('themeLight');
+    const darkBtn = $('themeDark');
+    if (lightBtn && darkBtn) {
+      lightBtn.classList.toggle('active', m === 'light');
+      darkBtn.classList.toggle('active', m === 'dark');
+    }
+    // Re-render charts so colors pick up the new theme's CSS variables.
+    if (Object.keys(charts).length) {
+      requestAnimationFrame(() => { renderCharts(); renderModes(); });
+    }
+  }
+  (function initTheme() {
+    let saved = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch (_) {}
+    if (saved === 'dark' || saved === 'light') applyTheme(saved);
+    else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) applyTheme('dark');
+    else applyTheme('light');
+  })();
+  if ($('themeLight')) $('themeLight').addEventListener('click', () => applyTheme('light'));
+  if ($('themeDark')) $('themeDark').addEventListener('click', () => applyTheme('dark'));
+
+  // Auto-unlock if token already stored
+  if (token) {
+    api('/api/research/summary').then(() => {
+      $('authGate').style.display = 'none';
+      $('sidebar').style.display = '';
+      $('appShell').style.display = '';
+      return loadAll();
+    }).catch(() => { token = ''; sessionStorage.removeItem(TOKEN_KEY); });
+  }
+})();
+  </script>
+</body>
+</html>

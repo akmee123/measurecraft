@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeasureCraft · Quantity Takeoff Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <script src="research-client.js"></script>
+    
+  <link rel="stylesheet" href="css/takeoff_pro.css">
+</head>
+<body>
+
+    <div id="app-header">
+        <div class="brand">
+            <div class="brand-icon">
+                <img src="logo-icon.png" alt="MeasureCraft" width="42" height="42" />
+            </div>
+            <div class="brand-text">
+                <strong>MeasureCraft</strong><br>
+                <span>AI-powered element detection &amp; quantity takeoff</span>
+            </div>
+        </div>
+        <input id="projectNameInput" value="Untitled Project" />
+        <span id="clientChip" class="chip">Client: —</span>
+        <span id="dateChip" class="chip"></span>
+        <div class="header-actions">
+            <a href="mode-select.html">Modes</a>
+            <button id="btnOpenSimple" title="Save and continue in Simple Mode"><i class="fas fa-arrow-left"></i> Open Simple</button>
+            <button id="btnProjectInfo"><i class="fas fa-info-circle"></i> Project</button>
+            <button id="btnHelpShortcuts"><i class="fas fa-keyboard"></i></button>
+        </div>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div id="toolbar">
+        <div class="group">
+            <button id="btnSave" data-tooltip="Save Project"><i class="fas fa-save"></i></button>
+            <button id="btnUploadDrawing" class="primary" data-tooltip="Import PDF / Image"><i class="fas fa-file-import"></i> Import</button>
+            <button id="btnExport" class="primary" data-tooltip="Export"><i class="fas fa-file-export"></i> Export</button>
+        </div>
+        <div class="group">
+            <button id="toolSelect" class="tool-btn tool-active" data-tool="select" data-tooltip="Select (V)"><i class="fas fa-mouse-pointer"></i></button>
+            <button id="toolPan" class="tool-btn" data-tool="pan" data-tooltip="Pan (H / Space)"><i class="fas fa-hand-paper"></i></button>
+            <button id="btnZoomIn" data-tooltip="Zoom In"><i class="fas fa-search-plus"></i></button>
+            <button id="btnZoomOut" data-tooltip="Zoom Out"><i class="fas fa-search-minus"></i></button>
+            <button id="btnZoomFit" data-tooltip="Fit to View"><i class="fas fa-expand"></i></button>
+            <button id="btnZoomLock" data-tooltip="Lock Zoom — disable trackpad/scroll zoom (easier pan)"><i class="fas fa-lock-open"></i></button>
+        </div>
+        <div class="group">
+            <button id="toolCalibrate" class="tool-btn" data-tool="calibrate" data-tooltip="Calibrate scale (C)"><i class="fas fa-drafting-compass"></i> Calibrate</button>
+            <button id="toolMeasure" class="tool-btn" data-tool="measure" data-tooltip="Measure distance (M)"><i class="fas fa-ruler-horizontal"></i> Measure</button>
+        </div>
+        <div class="group">
+            <button id="toolSlab" class="tool-btn" data-tool="slab" data-tooltip="Slab / Floor Area"><i class="fas fa-th-large"></i> Slab</button>
+            <button id="toolColumn" class="tool-btn" data-tool="column" data-tooltip="Column"><i class="fas fa-grip-vertical"></i> Col</button>
+            <button id="toolCutout" class="tool-btn" data-tool="cutout" data-tooltip="Cutout – draw polygon opening"><i class="fas fa-cut"></i> Cutout</button>
+        </div>
+        <div class="group">
+            <button id="toolWall" class="tool-btn" data-tool="wall" data-tooltip="Wall"><i class="fas fa-vector-square"></i> Wall</button>
+            <button id="toolBeam" class="tool-btn" data-tool="beam" data-tooltip="Beam"><i class="fas fa-grip-lines"></i> Beam</button>
+            <button id="toolDeductionWall" class="tool-btn" data-tool="deduction_wall" data-tooltip="Deduction on Wall (line)"><i class="fas fa-cut" style="color:#FFD700;"></i> Deduction Wall</button>
+        </div>
+        <div class="group">
+            <button id="btnUndo" data-tooltip="Undo (Ctrl+Z)"><i class="fas fa-undo-alt"></i></button>
+            <button id="btnRedo" data-tooltip="Redo (Ctrl+Y)"><i class="fas fa-redo-alt"></i></button>
+            <button id="btnDelete" data-tooltip="Delete (Del)"><i class="fas fa-trash"></i></button>
+            <button id="btnRotateCCW" data-tooltip="Rotate selection 90° counter-clockwise (Shift+R)" title="Rotate 90° CCW"><i class="fas fa-sync-alt fa-flip-horizontal"></i><span class="btn-deg">90°</span></button>
+            <button id="btnRotateCW" data-tooltip="Rotate selection 90° clockwise (R)" title="Rotate 90° CW"><i class="fas fa-sync-alt"></i><span class="btn-deg">90°</span></button>
+        </div>
+        <div class="group">
+            <button id="btnComplete" data-tooltip="Complete (Enter)" style="background:var(--success);color:#fff;"><i class="fas fa-check"></i> Done</button>
+            <button id="btnCancelDraw" class="danger" data-tooltip="Cancel (Esc)"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="group">
+            <button id="btnSnapGrid" data-tooltip="Snap to grid (off = exact click)"><i class="fas fa-magnet"></i></button>
+            <button id="btnSnapWall" data-tooltip="Grid on/off"><i class="fas fa-th"></i></button>
+            <button id="btnToggleElements" data-tooltip="Show / hide measured elements on drawing"><i class="fas fa-layer-group"></i></button>
+            <button id="btnAutoGlue" class="tool-active" data-tooltip="Auto-Glue ON — connect nearby walls/columns within tolerance. Click to switch to Keep Separate."><i class="fas fa-link"></i> Glue</button>
+            <label id="glueTolLabel" title="Connection tolerance (mm)" style="display:flex;align-items:center;gap:3px;font-size:11px;color:var(--text-secondary);white-space:nowrap;">
+                <input id="glueToleranceMm" type="number" min="0" max="200" step="1" value="10" style="width:42px;background:var(--input-bg);border:1px solid var(--border-color);color:var(--text-primary);padding:2px 4px;border-radius:4px;font-size:11px;" />
+                mm
+            </label>
+        </div>
+        <div class="group" id="bgControls" style="display:none;align-items:center;gap:6px;">
+            <span id="bgOpacityValue">100%</span>
+            <input type="range" id="bgOpacity" min="0" max="100" value="100" title="Underlay opacity" style="width:70px;" />
+            <button id="btnBgToggle" data-tooltip="Toggle underlay"><i class="fas fa-eye"></i></button>
+            <button id="btnBgRemove" data-tooltip="Remove underlay"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="group">
+            <button id="btnAiDetect" data-tooltip="AI Detect"><i class="fas fa-robot"></i> AI</button>
+            <button id="btnMaterials" data-tooltip="Materials"><i class="fas fa-cubes"></i></button>
+            <button id="btnSettings" data-tooltip="Settings"><i class="fas fa-cog"></i></button>
+            <button id="btnViewProps" data-tooltip="View properties & quantities"><i class="fas fa-sliders-h"></i> Properties</button>
+        </div>
+        <div class="group">
+            <button id="btnConfirm" data-tooltip="Confirm and lock takeoff"><i class="fas fa-check-double"></i> Confirm</button>
+        </div>
+        <div class="group">
+            <button id="btnFocusMode" data-tooltip="Focus Mode (F)" aria-pressed="false"><i class="fas fa-expand"></i><span class="focus-label">Focus</span></button>
+        </div>
+        <div class="spacer"></div>
+        <div style="display:flex;gap:10px;font-size:12px;color:var(--text-secondary);align-items:center;font-weight:500;">
+            <button id="btnTheme" class="theme-toggle" data-tooltip="Toggle theme"><i class="fas fa-moon"></i></button>
+            <span id="zoomDisplay">100%</span>
+            <span id="statusCalib" style="cursor:pointer;padding:3px 8px;border-radius:var(--radius-md);transition:background var(--transition-fast);" data-tooltip="Click to reset scale"><span id="calibDisplay">1 u = 1 m</span></span>
+            <span id="statusMode" style="font-weight:600;color:var(--accent);background:var(--accent-subtle);padding:3px 10px;border-radius:var(--radius-full);font-size:11px;border:1px solid var(--accent-light);">Select</span>
+        </div>
+    </div>
+
+    <!-- MAIN -->
+    <div id="main">
+        <div id="left-panel">
+            <div class="panel-header"><span><i class="fas fa-layer-group" style="margin-right:6px;color:var(--accent);"></i> Elements</span><span id="elemCount" style="font-size:11px;color:var(--text-secondary);font-weight:600;background:var(--bg-tertiary);padding:2px 8px;border-radius:var(--radius-full);">0</span></div>
+            <div class="elements-search"><i class="fas fa-search"></i><input id="elementSearch" type="search" placeholder="Search elements…" aria-label="Search elements" /></div>
+            <div id="layer-tabs"></div>
+            <div id="tree-container"></div>
+        </div>
+        <div id="viewer-container">
+            <div id="loading">Loading...</div>
+            <div class="viewer-tabs">
+                <button class="active" data-view="2d"><i class="fas fa-2d"></i> 2D</button>
+                <button data-view="3d"><i class="fas fa-cube"></i> 3D</button>
+            </div>
+            <canvas id="canvas2d" width="1200" height="800"></canvas>
+            <div id="threeContainer" class="three-container">
+                <div class="three-overlay">🔄 Drag to orbit · Scroll to zoom</div>
+            </div>
+            <div class="overlay-label">🔒 PDF locked · 2D/3D toggle · scroll zoom (or lock zoom for trackpad) · middle/Space+drag pan · Ctrl+click cycle · arrows pan</div>
+            <div class="measure-marker" id="measureMarker"></div>
+            <div class="measure-label" id="measureLabel">0.00 m</div>
+
+    <div id="aiReviewModal" role="dialog" aria-label="AI Detection Review" aria-modal="true">
+        <div class="ai-review-box">
+            <div class="ai-review-head">
+                <h3>AI Detection Complete</h3>
+                <p id="aiReviewSummary">Review detected elements before continuing. Running AI Detect again will replace all current measurements (manual and previous AI).</p>
+            </div>
+            <div class="ai-review-counts" id="aiReviewCounts"></div>
+            <div class="ai-review-list" id="aiReviewList"></div>
+            <div class="ai-review-foot">
+                <button type="button" class="danger" id="aiReviewRejectAll">Reject All</button>
+                <button type="button" id="aiReviewReviewBtn">Review Results</button>
+                <button type="button" class="primary" id="aiReviewAcceptAll">Accept All</button>
+            </div>
+        </div>
+    </div>
+
+        </div>
+        <div id="right-panel" aria-hidden="true">
+            <div class="panel-header">
+                <span><i class="fas fa-sliders-h" style="margin-right:6px;color:var(--accent);"></i> Properties &amp; Quantities</span>
+                <button type="button" class="props-close" id="btnPropsClose" title="Hide properties" aria-label="Hide properties"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div id="props-container"><div class="empty-state"><i class="fas fa-mouse-pointer"></i>Select an element to view properties</div></div>
+        </div>
+    </div>
+
+    <!-- Live Quantities: bottom center · ↑ open / ↓ hide -->
+    <button type="button" class="panel-arrow-btn" id="btnArrowQty" title="Show or hide live quantities">
+        <span class="arrow-icon" id="iconArrowQty"><i class="fas fa-chevron-up"></i></span>
+        <span class="arrow-label-show">Live Quantities</span>
+        <span class="arrow-label-hide">Hide quantities</span>
+    </button>
+    <!-- Elements: left center · → open / ← hide -->
+    <button type="button" class="panel-arrow-btn" id="btnArrowElements" title="Show or hide elements">
+        <span class="arrow-icon" id="iconArrowElements"><i class="fas fa-chevron-right"></i></span>
+        <span class="arrow-label-show">Elements</span>
+        <span class="arrow-label-hide">Hide</span>
+    </button>
+    <!-- Properties: right center · ← open (popup from right) / → hide (sleep right) -->
+    <button type="button" class="panel-arrow-btn" id="btnArrowProps" title="Show or hide properties">
+        <span class="arrow-icon" id="iconArrowProps"><i class="fas fa-chevron-left"></i></span>
+        <span class="arrow-label-show">Properties</span>
+        <span class="arrow-label-hide">Hide</span>
+    </button>
+    <div id="bottom-panel" aria-hidden="true">
+        <div class="panel-header">
+            <span><i class="fas fa-table" style="margin-right:6px;color:var(--accent);"></i> Live Quantities · Gross · Deduction · Net</span>
+            <button type="button" class="qty-close" id="btnQtyClose" title="Hide quantities"><i class="fas fa-chevron-down"></i></button>
+        </div>
+        <div id="table-wrap">
+            <table id="quantity-table"><thead><tr><th>Material</th><th>Element</th><th>Gross</th><th>Deduction</th><th>Net</th><th>Unit</th><th>Remarks</th></tr></thead><tbody id="table-body"></tbody></table>
+        </div>
+    </div>
+
+    <!-- STATUS -->
+    <div id="status-bar">
+        <span>
+            <span id="statusCursor">(0, 0)</span>
+            <span style="color:var(--border-color);">|</span>
+            <span id="statusScale">Scale: —</span>
+            <span style="color:var(--border-color);">|</span>
+            <span id="statusZoom">Zoom: 100%</span>
+            <span style="color:var(--border-color);">|</span>
+            <span id="statusSnap">Snap: Grid</span>
+            <span style="color:var(--border-color);">|</span>
+            <span id="statusElems">0 elements</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:10px;">
+            <span id="markupLegend" style="display:flex;gap:8px;align-items:center;font-size:10px;color:var(--text-secondary);">
+                <span title="Wall"><i style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;vertical-align:middle;"></i> Wall</span>
+                <span title="Deduction"><i style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;vertical-align:middle;"></i> Deduct</span>
+                <span title="Column"><i style="display:inline-block;width:10px;height:10px;background:#eab308;border-radius:2px;vertical-align:middle;"></i> Col</span>
+                <span title="Beam"><i style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:2px;vertical-align:middle;"></i> Beam</span>
+                <span title="Slab"><i style="display:inline-block;width:10px;height:10px;background:rgba(249,115,22,0.55);border-radius:2px;vertical-align:middle;"></i> Slab</span>
+                <span title="Opening"><i style="display:inline-block;width:10px;height:10px;background:#a855f7;border-radius:2px;vertical-align:middle;"></i> Open</span>
+            </span>
+            <span style="color:var(--border-color);">|</span>
+            <span id="statusEdit">Draft</span>
+            <span style="color:var(--border-color);">|</span>
+            <i class="fas fa-save" style="color:var(--success);"></i> Auto-saved
+        </span>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="mcToast" style="position:fixed;bottom:48px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-color);padding:10px 18px;border-radius:var(--radius-md);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);z-index:10000;opacity:0;pointer-events:none;transition:opacity 0.2s,transform 0.2s;max-width:420px;text-align:center;"></div>
+
+    <!-- CONTEXT MENU -->
+    <div class="context-menu" id="contextMenu">
+        <div class="item" data-action="edit"><i class="fas fa-edit"></i> Edit</div>
+        <div class="item" data-action="duplicate"><i class="fas fa-copy"></i> Duplicate</div>
+        <div class="item" data-action="delete"><i class="fas fa-trash"></i> Delete</div>
+        <div class="separator"></div>
+        <div class="item" data-action="rotateCW"><i class="fas fa-sync-alt"></i> Rotate 90° CW</div>
+        <div class="item" data-action="rotateCCW"><i class="fas fa-sync-alt fa-flip-horizontal"></i> Rotate 90° CCW</div>
+        <div class="item" data-action="rotate180"><i class="fas fa-arrows-rotate"></i> Rotate 180°</div>
+        <div class="item" data-action="rotateCustom"><i class="fas fa-drafting-compass"></i> Rotate by angle…</div>
+        <div class="separator"></div>
+        <div class="item" data-action="lock"><i class="fas fa-lock"></i> Lock</div>
+        <div class="item" data-action="hide"><i class="fas fa-eye-slash"></i> Hide</div>
+        <div class="separator"></div>
+        <div class="item" data-action="bringFront"><i class="fas fa-arrow-up"></i> Bring to Front</div>
+        <div class="item" data-action="sendBack"><i class="fas fa-arrow-down"></i> Send to Back</div>
+        <div class="separator"></div>
+        <div class="item" data-action="assignMat"><i class="fas fa-cube"></i> Assign Material</div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <h2><span>Project Settings</span><span class="close-btn" id="modalClose">&times;</span></h2>
+            <div id="settingsContent"></div>
+            <div class="actions">
+                <button id="modalCancel">Cancel</button>
+                <button class="primary" id="modalSave">Save Overrides</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MATERIALS MODAL -->
+    <div class="modal-overlay" id="materialsModal">
+        <div class="modal">
+            <h2><span>Material Library</span><span class="close-btn" id="matModalClose">&times;</span></h2>
+            <div id="materialsContent"></div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px;">
+                <input id="marketRegionInput" type="text" placeholder="Region e.g. Colombo, Sri Lanka" value="Colombo, Sri Lanka"
+                    style="flex:1;min-width:160px;background:var(--input-bg);border:1px solid var(--border-color);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:12px;" />
+                <button type="button" id="btnFetchMarketRates" class="primary" style="padding:6px 12px;border-radius:6px;background:#059669;color:#fff;">
+                    <i class="fas fa-chart-line"></i> AI market rates
+                </button>
+            </div>
+            <p id="marketRatesStatus" style="font-size:11px;color:var(--text-secondary);margin:-4px 0 10px;"></p>
+            <div class="actions">
+                <button id="matModalCancel">Cancel</button>
+                <button class="primary" id="matModalSave">Save Materials</button>
+            </div>
+        </div>
+    </div>
+
+    
+    <div class="modal-overlay" id="projectModal">
+        <div class="modal" style="max-width:560px;">
+            <h2><span>Project Information</span><span class="close-btn" id="projModalClose">&times;</span></h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;">
+                <div class="field-group" style="grid-column:1/-1;"><label>Project name</label><input id="infoProjectName" type="text" /></div>
+                <div class="field-group"><label>Project number</label><input id="infoRef" type="text" placeholder="e.g. QS-2026-041" /></div>
+                <div class="field-group"><label>Status</label>
+                    <select id="infoStatus" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-md);font-size:12px;font-weight:500;">
+                        <option value="Draft">Draft</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="AI Analysis">AI Analysis</option>
+                        <option value="Takeoff">Takeoff</option>
+                        <option value="Estimating">Estimating</option>
+                        <option value="Completed">Completed</option>
+                    </select>
+                </div>
+                <div class="field-group"><label>Client</label><input id="infoClient" type="text" placeholder="Client / Owner" /></div>
+                <div class="field-group"><label>Location</label><input id="infoLocation" type="text" placeholder="Site location" /></div>
+                <div class="field-group"><label>Building type</label>
+                    <select id="infoBuildingType" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-md);font-size:12px;font-weight:500;">
+                        <option value="">— Select —</option>
+                        <option value="Residential">Residential</option>
+                        <option value="Commercial">Commercial</option>
+                        <option value="Industrial">Industrial</option>
+                        <option value="Institutional">Institutional</option>
+                        <option value="Mixed Use">Mixed Use</option>
+                        <option value="Infrastructure">Infrastructure</option>
+                    </select>
+                </div>
+                <div class="field-group"><label>Number of floors</label><input id="infoFloors" type="number" min="1" step="1" placeholder="e.g. 4" /></div>
+                <div class="field-group"><label>Currency</label>
+                    <select id="infoCurrency" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-md);font-size:12px;font-weight:500;">
+                        <option value="LKR">LKR (Rs.)</option>
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="INR">INR (₹)</option>
+                        <option value="AED">AED</option>
+                        <option value="AUD">AUD</option>
+                    </select>
+                </div>
+                <div class="field-group"><label>Units</label>
+                    <select id="infoUnits" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-md);font-size:12px;font-weight:500;">
+                        <option value="metric">Metric (m, m², m³)</option>
+                        <option value="imperial">Imperial (ft, ft², yd³)</option>
+                    </select>
+                </div>
+                <div class="field-group"><label>Prepared by</label><input id="infoQS" type="text" placeholder="Quantity Surveyor" /></div>
+                <div class="field-group" style="grid-column:1/-1;"><label>Description / Notes</label><textarea id="infoNotes" rows="3" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-md);font-size:12px;font-weight:500;resize:vertical;"></textarea></div>
+            </div>
+            <div class="actions">
+                <button id="projModalCancel">Cancel</button>
+                <button class="primary" id="projModalSave">Save</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="helpModal">
+        <div class="modal" style="max-width:560px;">
+            <h2><span>Keyboard shortcuts</span><span class="close-btn" id="helpModalClose">&times;</span></h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;font-size:12px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Select</span><kbd>V</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Pan</span><kbd>H / Space</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Finish element (stay in tool)</span><kbd>Enter</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Cancel / exit tool</span><kbd>Esc</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Delete</span><kbd>Del</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Undo / Redo</span><kbd>Ctrl+Z / Y</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Copy / Paste</span><kbd>Ctrl+C / V</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Select all</span><kbd>Ctrl+A</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>2D / 3D</span><kbd>1 / 2</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Calibrate</span><kbd>C</kbd></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>Measure</span><kbd>M</kbd></div>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;"><strong>Workflow:</strong> Import drawing → Calibrate scale → Measure in order below → Review Live Quantities → Export BOQ.</p>
+            <div style="margin-top:10px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;font-size:12px;line-height:1.55;color:var(--text-primary);">
+                <div style="font-weight:600;margin-bottom:6px;">📐 Recommended measurement order</div>
+                <ol style="margin:0;padding-left:18px;color:var(--text-secondary);">
+                    <li><strong>Columns</strong> — measure all columns first (locations &amp; sizes stored).</li>
+                    <li><strong>Walls</strong> — measure walls; column overlaps are auto-deducted using each wall’s own thickness.</li>
+                    <li><strong>Openings</strong> — Deduct Wall/Opening; system uses the parent wall thickness (e.g. 100&nbsp;mm vs 225&nbsp;mm), never a fixed global value.</li>
+                    <li><strong>Slabs</strong> — snap to wall <em>center</em>, <em>edge</em>, or <em>corner</em>; overlaps deduct automatically where applicable.</li>
+                </ol>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);">Tip: hold <kbd>Alt</kbd> while clicking to place a point without object snap. Live Quantities shows Gross · Deduction · Net per element.</div>
+            </div>
+            <div class="actions"><button class="primary" id="helpModalOk">Got it</button></div>
+        </div>
+    </div>
+
+    <!-- EXPORT MODAL — graphical preview + downloads -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal" style="position:relative;">
+            <div class="export-header">
+                <div>
+                    <h2>
+                        <span class="export-icon"><i class="fas fa-file-export"></i></span>
+                        Export takeoff
+                    </h2>
+                    <div class="sub" id="exportModalSub">Preview your marked drawing &amp; BOQ, then download</div>
+                </div>
+                <span class="close-btn" id="exportModalClose" title="Close">&times;</span>
+            </div>
+            <div class="export-body">
+                <div class="export-preview-pane">
+                    <div class="preview-label">
+                        <span><i class="fas fa-image" style="margin-right:5px;"></i> Marked drawing preview</span>
+                        <span id="exportScaleNote" style="font-weight:500;text-transform:none;letter-spacing:0;"></span>
+                    </div>
+                    <div class="preview-frame" id="exportPreviewFrame">
+                        <canvas id="exportPreviewCanvas"></canvas>
+                        <div class="preview-empty" id="exportPreviewEmpty" style="display:none;">
+                            <i class="fas fa-drafting-compass"></i>
+                            No elements or drawing yet.<br>Draw some takeoff items first.
+                        </div>
+                    </div>
+                </div>
+                <div class="export-summary-pane">
+                    <div class="stat-row">
+                        <div class="stat-card">
+                            <div class="val" id="exportStatElems">0</div>
+                            <div class="lbl">Elements</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="val" id="exportStatMats">0</div>
+                            <div class="lbl">Materials</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="val" id="exportStatItems">0</div>
+                            <div class="lbl">BOQ lines</div>
+                        </div>
+                    </div>
+                    <div class="preview-label"><span><i class="fas fa-cubes" style="margin-right:5px;"></i> Material estimate</span>
+                        <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text-tertiary);">auto from elements</span>
+                    </div>
+                    <div class="boq-preview-wrap" style="max-height:200px;">
+                        <table class="boq-preview-table">
+                            <thead>
+                                <tr><th>Material</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr>
+                            </thead>
+                            <tbody id="exportBoqBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="preview-label" style="margin-top:4px;"><span><i class="fas fa-layer-group" style="margin-right:5px;"></i> Element quantities</span></div>
+                    <div class="boq-preview-wrap" style="max-height:110px;">
+                        <table class="boq-preview-table">
+                            <thead>
+                                <tr><th>Element</th><th>Qty</th><th>Unit</th></tr>
+                            </thead>
+                            <tbody id="exportElemBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="export-total-bar" id="exportTotalBar" style="display:none;flex-direction:column;align-items:stretch;gap:4px;">
+                        <div style="display:flex;justify-content:space-between;"><span class="total-label">Materials</span><span id="exportMatSub">—</span></div>
+                        <div style="display:flex;justify-content:space-between;"><span class="total-label">Contingency (15%)</span><span id="exportContingency">—</span></div>
+                        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-subtle);padding-top:4px;">
+                            <span class="total-label" style="color:var(--success);">Total estimate</span>
+                            <span class="total-val" id="exportTotalCost">—</span>
+                        </div>
+                    </div>
+                    <p style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin:0;">
+                        Quantities are calculated automatically. <strong>Price</strong> is left empty until an online price database is connected (or you set rates in Material Library).
+                    </p>
+                </div>
+            </div>
+            <div class="export-actions">
+                <button type="button" class="export-dl-btn success" id="btnDlExcel" title="Excel with Material Estimate + Plain Text sheet">
+                    <i class="fas fa-file-excel"></i> Excel BOQ
+                </button>
+                <button type="button" class="export-dl-btn" id="btnDlTxt" title="Download plain text report (.txt)">
+                    <i class="fas fa-file-alt"></i> Text
+                </button>
+                <button type="button" class="export-dl-btn primary" id="btnDlPdf" title="Marked plan as PDF">
+                    <i class="fas fa-file-pdf"></i> Marked PDF
+                </button>
+                <button type="button" class="export-dl-btn primary" id="btnDlBoth" title="Download Excel + PDF">
+                    <i class="fas fa-download"></i> Both
+                </button>
+                <div class="spacer"></div>
+                <button type="button" class="export-dl-btn ghost" id="btnCopySummary" title="Copy BOQ text to clipboard">
+                    <i class="fas fa-copy"></i> Copy summary
+                </button>
+                <button type="button" class="export-dl-btn ghost" id="btnDlProjectJson" title="Save full project JSON">
+                    <i class="fas fa-save"></i> Project JSON
+                </button>
+            </div>
+            <div class="export-toast" id="exportToast">Downloaded</div>
+        </div>
+    </div>
+
+    <!-- HIDDEN FILE INPUT -->
+    <input type="file" id="fileInput" accept=".json" />
+    <input type="file" id="drawingFileInput" accept=".pdf,.png,.jpg,.jpeg" />
+
+    <!-- SheetJS for Excel BOQ export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <!-- THREE.JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js">
+    </script>
+    <!-- PDF.JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js">
+    </script>
+
+    
+
+    
+    <button type="button" class="focus-exit" id="btnFocusExit"><i class="fas fa-compress"></i> Exit Focus</button>
+    <button type="button" class="mc-ai-fab" id="mcAiFab" title="AI Assistant" aria-label="Open AI Assistant"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+    <div class="mc-ai-panel" id="mcAiPanel" role="dialog" aria-label="AI Assistant">
+        <div class="mc-ai-head"><span>AI Assistant</span><div class="mc-ai-actions"><button type="button" id="mcAiClose" title="Close">×</button></div></div>
+        <div class="mc-ai-body" id="mcAiBody"><strong>Hi — how can I help?</strong><br><br>Ask about tools, calibration, zoom lock, walls, AI detect, or export.</div>
+        <div class="mc-ai-foot"><input type="text" id="mcAiInput" placeholder="Ask something…" autocomplete="off" /><button type="button" id="mcAiSend">Send</button></div>
+    </div>
+    
+  <script src="js/takeoff_pro.js?v=wall-engine-8"></script>
+</body>
+</html>
