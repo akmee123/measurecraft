@@ -2068,7 +2068,9 @@
             const list = [];
             selectedIds.forEach(function (id) {
                 const el = elements.find(function (e) { return e.id === id; });
-                if (!el || el.locked || el.hidden) return;
+                if (!el || el.locked) return;
+                // Count markers are hidden for canvas draw but must still rotate/move
+                if (el.hidden && !(typeof el.type === 'string' && el.type.indexOf('count_') === 0)) return;
                 list.push(el);
                 const c = getElementCenter(el);
                 sx += c.x; sy += c.y; n++;
