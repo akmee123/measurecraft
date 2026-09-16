@@ -1079,12 +1079,16 @@ const AGENT_TAKEOFF_PROMPT = [
   'You are a construction quantity takeoff agent reading a floor plan image.',
   'Detect rooms and measure-worthy elements. Return ONLY valid JSON (no markdown).',
   'Schema:',
-  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n},"walls":[{"x":n,"y":n,"w":n,"h":n}],"doors":[{"x":n,"y":n,"w":n,"h":n}],"windows":[{"x":n,"y":n,"w":n,"h":n}],"columns":[{"x":n,"y":n,"w":n,"h":n}],"confidence":0-1}],"summary":"one sentence"}',
+  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n},"walls":[{"x":n,"y":n,"w":n,"h":n}],"doors":[{"x":n,"y":n,"w":n,"h":n}],"windows":[{"x":n,"y":n,"w":n,"h":n}],"columns":[{"x":n,"y":n,"w":n,"h":n}],"confidence":0-1}],"global_columns":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1,"evidence":["string"],"uncertainty":["string"]}],"summary":"one sentence"}',
   'Rules:',
   '- Coordinates are pixels from the TOP-LEFT of the image (x,y = top-left of box; w,h = size).',
   '- floor = INTERIOR usable floor plate of the room (slab area), not including wall thickness.',
   '- walls = LONG THIN rectangles along each perimeter wall segment of that room (aspect >= 3:1). Split at corners.',
   '- doors / windows = small boxes on openings; columns = small piers.',
+  '- IMPORTANT: columns are GLOBAL structural elements. Do NOT require a column to be inside a detected room. Search the ENTIRE floor-plan image, including columns outside room boundaries, beside external walls, in open areas, at grid intersections, and in spaces not recognized as rooms.',
+  '- If a reference image is supplied for columns, use it as the visual symbol guide and report every matching column in the full floor plan. Do not report the reference crop itself.',
+  '- Return each clearly visible column in global_columns even when it is not associated with any room. Use room.columns only when a column is clearly inside/associated with that room; avoid duplicating a column in both arrays.',
+  '- When the user goal explicitly asks for columns, prioritize a complete whole-sheet column search over room completeness.',
   '- Prefer named rooms from labels on the plan (Bedroom, Kitchen, Toilet, Corridor, etc.).',
   '- Skip title blocks, schedules, legends, and notes outside the plan.',
   '- Include every clearly enclosed room you can see. Empty open areas without walls are not rooms.',
@@ -1150,6 +1154,18 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
     }
 
     const roomsIn = Array.isArray(parsed.rooms) ? parsed.rooms : [];
+    const normalizeBox = (b) => {
+      if (!b || typeof b !== 'object') return null;
+      const x = Number(b.x), y = Number(b.y), bw = Number(b.w), bh = Number(b.h);
+      if (![x, y, bw, bh].every(Number.isFinite) || bw < 2 || bh < 2) return null;
+      return { x, y, w: bw, h: bh };
+    };
+    const globalColumns = Array.isArray(parsed.global_columns)
+      ? parsed.global_columns.map((c) => {
+          const b = normalizeBox(c);
+          return b ? { ...b, confidence: Number.isFinite(Number(c.confidence)) ? Math.max(0, Math.min(1, Number(c.confidence))) : null, evidence: Array.isArray(c.evidence) ? c.evidence.slice(0, 8).map(String) : [], uncertainty: Array.isArray(c.uncertainty) ? c.uncertainty.slice(0, 8).map(String) : [] } : null;
+        }).filter(Boolean).slice(0, 150)
+      : [];
     const rooms = roomsIn.slice(0, 80).map((r, i) => {
       const name = (r && typeof r.name === 'string' && r.name.trim()) ? r.name.trim().slice(0, 80) : `Room ${i + 1}`;
       const box = (b) => {
@@ -1175,6 +1191,8 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
       model: GEMINI_MODEL,
       summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 300) : '',
       room_count: rooms.length,
+      global_columns: globalColumns,
+      column_count: globalColumns.length + rooms.reduce((n, r) => n + r.columns.length, 0),
       rooms,
     });
   } catch (err) {
@@ -1224,6 +1242,7 @@ app.post('/api/agent/analyze', rateLimitAi, requireApiToken, async (req, res) =>
       AGENT_TAKEOFF_PROMPT,
       'DRAWING INTELLIGENCE MODE: return room geometry plus explicit evidence and uncertainty for every room.',
       'For each room include: name, floor box, walls, doors, windows, columns, confidence, evidence[], uncertainty[].',
+      'Also include global_columns[] for every clearly visible column anywhere in the full drawing, regardless of room membership. This is required for column-focused goals.',
       'Evidence must describe only visible drawing cues (labels, boundary lines, symbols).',
       'Uncertainty must identify ambiguity such as occlusion, unclear wall boundary, missing scale, or uncertain room label.',
       'Do not invent dimensions, heights, materials, or hidden geometry.',
