@@ -199,19 +199,19 @@
             panel.style.display = 'flex';
             pruneOrphanMarkers();
             renderAllUi();
+            // If a type is already selected, re-arm so cursor/clicks work immediately
+            if (activeTypeId) arm();
+            else disarm();
             startSyncLoop();
+            try { syncOverlayMarkers(); } catch (_) {}
         }
         function closePanel() {
             panel.style.display = 'none';
             activeTypeId = null;
             disarm();
-            // Fully release the canvas so count markers can be selected/moved
-            // after Done (OK). Previously the overlay could keep intercepting.
-            try {
-                overlay.classList.remove('armed');
-                overlay.style.pointerEvents = 'none';
-            } catch (_) {}
             renderAllUi();
+            // Markers stay drawn on the plan; overlay is non-interactive (disarm).
+            try { syncOverlayMarkers(); } catch (_) {}
         }
         function togglePanel() {
             if (panel.style.display === 'none' || !panel.style.display) openPanel();
@@ -221,10 +221,23 @@
         function setActiveType(id) {
             activeTypeId = (activeTypeId === id) ? null : id;
             renderAllUi();
+            // Explicit re-arm after every type pick (fixes 2nd session after Done)
+            if (activeTypeId) arm();
+            else disarm();
         }
 
-        function arm() { overlay.classList.add('armed'); }
-        function disarm() { overlay.classList.remove('armed'); }
+        function arm() {
+            overlay.classList.add('armed');
+            // Force clickable + crosshair with inline styles (class-only was lost
+            // after Done / pan and left the plan unresponsive on the 2nd count session).
+            overlay.style.pointerEvents = 'auto';
+            overlay.style.cursor = 'crosshair';
+        }
+        function disarm() {
+            overlay.classList.remove('armed');
+            overlay.style.pointerEvents = 'none';
+            overlay.style.cursor = '';
+        }
 
         function addCustomType() {
             var label = window.prompt('Name of the custom object to count (e.g. "Extract Fan"):');
@@ -240,14 +253,26 @@
 
         function placeMarker(sx, sy) {
             if (!activeTypeId) return;
-            if (typeof screenToWorld !== 'function') return;
+            if (typeof screenToWorld !== 'function') {
+                console.warn('[count-tool] screenToWorld unavailable — cannot place marker');
+                return;
+            }
+            // Ensure overlay is armed so subsequent clicks keep working
+            arm();
             var world = screenToWorld(sx, sy);
+            if (!world || !isFinite(world.x) || !isFinite(world.y)) return;
             var marker = { id: nextMarkerId++, type: activeTypeId, wx: world.x, wy: world.y, elId: null };
             marker.elId = addBackingElement(marker);
             markers.push(marker);
             history.push(marker.id);
             save();
             renderAllUi();
+            // Immediate paint so the marker appears on the PDF right away
+            try { syncOverlayMarkers(); } catch (_) {}
+            try {
+                if (typeof renderAll === 'function') renderAll();
+                else if (typeof renderCanvas2D === 'function') renderCanvas2D();
+            } catch (_) {}
         }
 
         function undoLast() {
@@ -436,11 +461,10 @@
             var counting = !!activeTypeId || panelOpen || overlay.classList.contains('armed');
             if (!counting) return; // let takeoff_pro handle Esc (exit draw tools, clear selection)
             activeTypeId = null;
-            disarm();
             panel.style.display = 'none';
-            overlay.style.pointerEvents = '';
-            overlay.classList.remove('armed');
+            disarm();
             renderAllUi();
+            try { syncOverlayMarkers(); } catch (_) {}
             e.preventDefault();
             e.stopPropagation();
         }, true);
@@ -474,7 +498,14 @@
             } catch (_) {}
             overlay.style.pointerEvents = 'none';
             var restore = function () {
-                overlay.style.pointerEvents = ''; // let the .armed CSS class govern again
+                // Restore click-to-count if still armed; otherwise stay passive
+                if (overlay.classList.contains('armed') && activeTypeId) {
+                    overlay.style.pointerEvents = 'auto';
+                    overlay.style.cursor = 'crosshair';
+                } else {
+                    overlay.style.pointerEvents = 'none';
+                    overlay.style.cursor = '';
+                }
                 window.removeEventListener('mouseup', restore);
             };
             window.addEventListener('mouseup', restore);
