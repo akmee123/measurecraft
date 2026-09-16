@@ -203,7 +203,15 @@
         }
         function closePanel() {
             panel.style.display = 'none';
+            activeTypeId = null;
             disarm();
+            // Fully release the canvas so count markers can be selected/moved
+            // after Done (OK). Previously the overlay could keep intercepting.
+            try {
+                overlay.classList.remove('armed');
+                overlay.style.pointerEvents = 'none';
+            } catch (_) {}
+            renderAllUi();
         }
         function togglePanel() {
             if (panel.style.display === 'none' || !panel.style.display) openPanel();
@@ -417,21 +425,24 @@
             if (e.code === 'Space') localSpaceHeld = false;
         });
 
-        // Escape must ALWAYS leave Count mode, clear the active count type,
-        // release the overlay, and return control to the normal takeoff tools.
-        // This is intentionally a window-level handler so it still works when
-        // the count overlay is sitting above the drawing canvas.
+        // Escape leaves Count mode only when Count is actually active.
+        // IMPORTANT: do NOT stopPropagation when the panel is closed / no type
+        // is armed — otherwise Esc never reaches takeoff_pro and continuous
+        // wall/cutout/measure tools cannot be cancelled.
         window.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' || e.code === 'Escape') {
-                if (isTypingTargetSafe(e.target)) return;
-                activeTypeId = null;
-                disarm();
-                if (panel.style.display !== 'none') panel.style.display = 'none';
-                overlay.style.pointerEvents = '';
-                renderAllUi();
-                e.preventDefault();
-                e.stopPropagation();
-            }
+            if (e.key !== 'Escape' && e.code !== 'Escape') return;
+            if (isTypingTargetSafe(e.target)) return;
+            var panelOpen = panel.style.display && panel.style.display !== 'none';
+            var counting = !!activeTypeId || panelOpen || overlay.classList.contains('armed');
+            if (!counting) return; // let takeoff_pro handle Esc (exit draw tools, clear selection)
+            activeTypeId = null;
+            disarm();
+            panel.style.display = 'none';
+            overlay.style.pointerEvents = '';
+            overlay.classList.remove('armed');
+            renderAllUi();
+            e.preventDefault();
+            e.stopPropagation();
         }, true);
 
         overlay.addEventListener('wheel', function (e) {
