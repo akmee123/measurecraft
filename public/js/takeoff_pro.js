@@ -1663,8 +1663,8 @@
             const worldH = Math.max(1, maxY - minY);
             const availW = Math.max(40, W - pad * 2);
             const availH = Math.max(40, H - pad * 2);
-            // Cap max zoom so tiny drawings don't explode; allow zoom-out without floor fight
-            let scale = Math.min(availW / worldW, availH / worldH, 8);
+            // Cap max zoom so tiny drawings don't explode (was 8 = 800%, now 2 = 200%)
+            let scale = Math.min(availW / worldW, availH / worldH, 2);
             if (!(scale > 0) || !isFinite(scale)) scale = 1;
             scale = Math.max(0.02, scale);
 
@@ -1885,6 +1885,13 @@
                 return !el.hidden;
             }).map(function (el) { return el.id; });
             renderAll();
+            // Frame the full selection at a calm 60% zoom (was exploding to ~800%+
+            // when element world bounds were tiny relative to the viewer).
+            try {
+                if (typeof currentView !== 'string' || currentView === '2d') {
+                    zoomToElements(selectedIds, { targetScale: 0.6 });
+                }
+            } catch (_) {}
         }
 
         function addElement(el) {
@@ -12680,62 +12687,101 @@
             scheduleResearchQuantitySync();
             try { refreshSheetTabs(); } catch (_) {}
         }
-        function zoomToElement(el) {
-            if (!el) return;
-            const { W, H } = getViewerSize();
-            // Manual count markers are 1×1 point markers — never auto-zoom onto them
-            // (that would jump the view to an extreme scale). Just pan to center.
-            if (typeof el.type === 'string' && el.type.indexOf('count_') === 0) {
-                const cx = (el.x || 0) + (el.w || 1) / 2;
-                const cy = (el.y || 0) + (el.h || 1) / 2;
-                viewport.offsetX = W / 2 - cx * viewport.scale;
-                viewport.offsetY = H / 2 - cy * viewport.scale;
-                updateZoomDisplays();
-                renderCanvas2D();
+        /**
+         * Frame one or more elements in the 2D viewer.
+         * opts.targetScale — preferred zoom (e.g. 0.6 = 60%). Used for select-all.
+         * opts.maxScale — hard ceiling when fitting bounds (default 2 = 200%).
+         * Falls back to a calm fit when bounds are missing or degenerate.
+         */
+        function zoomToElements(ids, opts) {
+            opts = opts || {};
+            const list = (Array.isArray(ids) ? ids : [ids])
+                .map(function (id) { return findElementById(id); })
+                .filter(function (el) { return el && !el.hidden; });
+            if (!list.length) return;
+
+            // Single count marker: pan only (never explode zoom on a 1×1 point)
+            if (list.length === 1 && typeof list[0].type === 'string' && list[0].type.indexOf('count_') === 0) {
+                zoomToElement(list[0]);
                 return;
             }
-            // Build world-space points that frame the element correctly.
-            // Vertices are stored relative to el.x/el.y — convert to absolute.
-            let pts = [];
-            if (el.isLine && el.p1 && el.p2) {
-                pts = [el.p1, el.p2];
-            } else if (Array.isArray(el.vertices) && el.vertices.length >= 2) {
-                pts = el.vertices.map(function (v) {
-                    return { x: (el.x || 0) + (v.x || 0), y: (el.y || 0) + (v.y || 0) };
+
+            const { W, H } = getViewerSize();
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            let has = false;
+
+            list.forEach(function (el) {
+                let pts = [];
+                if (el.isLine && el.p1 && el.p2) {
+                    pts = [el.p1, el.p2];
+                } else if (Array.isArray(el.vertices) && el.vertices.length >= 2) {
+                    pts = el.vertices.map(function (v) {
+                        return { x: (el.x || 0) + (v.x || 0), y: (el.y || 0) + (v.y || 0) };
+                    });
+                } else {
+                    const x = el.x || 0, y = el.y || 0;
+                    const w = Math.max(1, el.w || 1), h = Math.max(1, el.h || 1);
+                    pts = [
+                        { x: x, y: y },
+                        { x: x + w, y: y },
+                        { x: x + w, y: y + h },
+                        { x: x, y: y + h }
+                    ];
+                }
+                if (el.isLine) {
+                    let half = 4;
+                    try {
+                        if (typeof getLineThicknessDraw === 'function') half = Math.max(2, getLineThicknessDraw(el) / 2);
+                        else if (typeof el.thicknessDraw === 'number' && el.thicknessDraw > 0) half = el.thicknessDraw / 2;
+                    } catch (_) {}
+                    pts = pts.concat([
+                        { x: pts[0].x - half, y: pts[0].y - half },
+                        { x: pts[0].x + half, y: pts[0].y + half }
+                    ]);
+                }
+                pts.forEach(function (p) {
+                    if (!p || !isFinite(p.x + p.y)) return;
+                    minX = Math.min(minX, p.x);
+                    minY = Math.min(minY, p.y);
+                    maxX = Math.max(maxX, p.x);
+                    maxY = Math.max(maxY, p.y);
+                    has = true;
                 });
-            } else {
-                const x = el.x || 0, y = el.y || 0;
-                const w = Math.max(1, el.w || 1), h = Math.max(1, el.h || 1);
-                pts = [
-                    { x: x, y: y },
-                    { x: x + w, y: y },
-                    { x: x + w, y: y + h },
-                    { x: x, y: y + h }
-                ];
-            }
-            let minX = Math.min.apply(null, pts.map(function (p) { return p.x; }));
-            let maxX = Math.max.apply(null, pts.map(function (p) { return p.x; }));
-            let minY = Math.min.apply(null, pts.map(function (p) { return p.y; }));
-            let maxY = Math.max.apply(null, pts.map(function (p) { return p.y; }));
-            // Expand thin line walls/beams by half thickness so the stroke is in view
-            if (el.isLine) {
-                let half = 4;
-                try {
-                    if (typeof getLineThicknessDraw === 'function') half = Math.max(2, getLineThicknessDraw(el) / 2);
-                    else if (typeof el.thicknessDraw === 'number' && el.thicknessDraw > 0) half = el.thicknessDraw / 2;
-                } catch (_) {}
-                minX -= half; maxX += half; minY -= half; maxY += half;
-            }
-            const pad = 90;
-            // Avoid extreme zoom on point-like or very thin elements
+            });
+
+            if (!has || !isFinite(minX) || maxX <= minX || maxY <= minY) return;
+
+            const pad = opts.pad != null ? opts.pad : 48;
             const worldW = Math.max(20, maxX - minX);
             const worldH = Math.max(20, maxY - minY);
-            const nextScale = Math.max(0.05, Math.min(10, Math.min((W - pad * 2) / worldW, (H - pad * 2) / worldH)));
+            const availW = Math.max(40, W - pad * 2);
+            const availH = Math.max(40, H - pad * 2);
+            // Prefer a fixed target scale for select-all (60%); otherwise fit bounds
+            // with a tight max so tiny element boxes never jump to 800%+.
+            let nextScale;
+            if (opts.targetScale != null && Number(opts.targetScale) > 0) {
+                nextScale = Number(opts.targetScale);
+            } else {
+                const maxScale = (opts.maxScale != null && Number(opts.maxScale) > 0)
+                    ? Number(opts.maxScale)
+                    : 2;
+                nextScale = Math.min(availW / worldW, availH / worldH, maxScale);
+            }
+            if (!(nextScale > 0) || !isFinite(nextScale)) nextScale = 0.6;
+            nextScale = Math.max(0.05, Math.min(nextScale, 8));
+
             viewport.scale = nextScale;
             viewport.offsetX = W / 2 - ((minX + maxX) / 2) * viewport.scale;
             viewport.offsetY = H / 2 - ((minY + maxY) / 2) * viewport.scale;
             updateZoomDisplays();
             renderCanvas2D();
+        }
+
+        function zoomToElement(el) {
+            if (!el) return;
+            // Delegate to multi-element framer (single id) with a sane max of 200%.
+            // Previously max was 1000% and tiny boxes jumped the view to ~800%+.
+            zoomToElements([el.id], { maxScale: 2, pad: 90 });
         }
 
         /** Zoom to a single selected element when in 2D view (tree / table / programmatic). */
