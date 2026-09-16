@@ -9191,7 +9191,12 @@
                 }
                 if (e.key === 'Escape' && !isEditing) {
                     e.preventDefault();
-                    // 1) Cancel any in-progress geometry (walls, slabs, deductions, measure, calibrate)
+                    // Continuous measure / draw / cutout / wall / calibrate: one Esc
+                    // always cancels points AND leaves the tool (was only clearing
+                    // points, so the tool kept placing the next segment).
+                    const isDrawTool = currentTool &&
+                        currentTool !== 'select' &&
+                        currentTool !== 'move';
                     const drawingInProgress =
                         (polygonPoints && polygonPoints.length > 0) ||
                         !!drawPreview ||
@@ -9199,49 +9204,21 @@
                         (measurePoints && measurePoints.length > 0) ||
                         (calibratePoints && calibratePoints.length > 0) ||
                         dragMode === 'draw' ||
-                        !!drawStartWorld;
-                    if (drawingInProgress) {
-                        try { cancelDrawing(); } catch (_) {}
+                        !!drawStartWorld ||
+                        (continuousDrawPoints && continuousDrawPoints.length > 0) ||
+                        !!continuousTempPreview;
+                    if (drawingInProgress || isDrawTool) {
+                        exitDrawingMode({ clearSelection: true });
                         return;
                     }
-                    // 2) Exit a real drawing tool (not select/move — those are selection modes)
-                    const isDrawTool = currentTool &&
-                        currentTool !== 'select' &&
-                        currentTool !== 'move';
-                    if (isDrawTool) {
-                        currentTool = null;
-                        document.querySelectorAll('.tool-btn').forEach(function (b) {
-                            b.classList.remove('tool-active');
-                        });
-                        try {
-                            const sm = document.getElementById('statusMode');
-                            if (sm) sm.textContent = 'Select';
-                            const c = document.getElementById('canvas2d');
-                            if (c) c.style.cursor = 'default';
-                        } catch (_) {}
-                        // Also clear selection so one Esc fully resets the canvas
-                        selectedIds = [];
-                        renderAll();
-                        return;
-                    }
-                    // 3) Clear element selection (works in select/move/null tool modes)
+                    // Clear element selection
                     if (selectedIds && selectedIds.length) {
                         selectedIds = [];
                         renderAll();
                         return;
                     }
-                    // 4) Nothing left — ensure select mode is neutral
-                    currentTool = null;
-                    document.querySelectorAll('.tool-btn').forEach(function (b) {
-                        b.classList.remove('tool-active');
-                    });
-                    try {
-                        const sm = document.getElementById('statusMode');
-                        if (sm) sm.textContent = 'Select';
-                        const c = document.getElementById('canvas2d');
-                        if (c) c.style.cursor = 'default';
-                    } catch (_) {}
-                    renderAll();
+                    // Neutral select mode
+                    exitDrawingMode({ clearSelection: true });
                 }
             });
 
@@ -10503,6 +10480,7 @@
             pendingDeductionParentId = null;
             deductionTargetLocked = false;
             continuousTempPreview = null;
+            continuousDrawPoints = [];
             editingVertex = null;
             drawStartWorld = null;
             drawCurrentWorld = null;
@@ -10512,6 +10490,7 @@
             measurePreview = null;
             calibratePoints = [];
             calibratePreview = null;
+            calibrateMode = false;
             hoveredParentId = null;
             hoveredSnapId = null;
             snapCursorPoint = null;
@@ -10522,16 +10501,49 @@
             const measureLabel = document.getElementById('measureLabel');
             if (measureLabel) measureLabel.style.display = 'none';
             if (currentTool === 'measure') {
-                document.getElementById('statusMode').textContent = 'Measure: click 1st point';
+                try { document.getElementById('statusMode').textContent = 'Measure: click 1st point'; } catch (_) {}
             } else {
-                document.getElementById('statusMode').textContent = currentTool ?
-                    (currentTool.charAt(0).toUpperCase() + currentTool.slice(1)) :
-                    'Select';
+                try {
+                    document.getElementById('statusMode').textContent = currentTool
+                        ? (currentTool.charAt(0).toUpperCase() + currentTool.slice(1))
+                        : 'Select';
+                } catch (_) {}
             }
-            document.getElementById('canvas2d').style.cursor =
-                (currentTool === 'pan') ? 'grab' :
-                (currentTool && currentTool !== 'select' && currentTool !== 'move') ? 'crosshair' : 'default';
+            try {
+                document.getElementById('canvas2d').style.cursor =
+                    (currentTool === 'pan') ? 'grab' :
+                    (currentTool && currentTool !== 'select' && currentTool !== 'move') ? 'crosshair' : 'default';
+            } catch (_) {}
             renderCanvas2D();
+        }
+
+        /**
+         * Fully leave continuous measure / draw mode.
+         * Used by Esc and the red X (Cancel) button so one action always stops
+         * the active tool — not just the current polyline points.
+         */
+        function exitDrawingMode(opts) {
+            opts = opts || {};
+            try { cancelDrawing(); } catch (_) {}
+            // Drop any active drawing tool (wall, cutout, measure, calibrate, …)
+            const wasTool = currentTool;
+            if (wasTool && wasTool !== 'select' && wasTool !== 'move') {
+                currentTool = null;
+            }
+            document.querySelectorAll('.tool-btn').forEach(function (b) {
+                b.classList.remove('tool-active');
+            });
+            try {
+                const sm = document.getElementById('statusMode');
+                if (sm) sm.textContent = 'Select';
+                const c = document.getElementById('canvas2d');
+                if (c) c.style.cursor = 'default';
+            } catch (_) {}
+            if (opts.clearSelection !== false) {
+                selectedIds = [];
+            }
+            try { renderAll(); } catch (_) { try { renderCanvas2D(); } catch (_) {} }
+            return wasTool || null;
         }
 
         // ----- CONTEXT MENU (unchanged) -----
@@ -12209,29 +12221,33 @@
             });
             const btnCancelDraw = document.getElementById('btnCancelDraw');
             if (btnCancelDraw) btnCancelDraw.addEventListener('click', () => {
+                // Red X = same as Esc: always stop continuous measure/draw tools.
+                // Previously it only cancelled mid-polyline points and left the
+                // tool armed, so Cutout/Wall/Measure kept going.
+                const isDrawTool = currentTool &&
+                    currentTool !== 'select' &&
+                    currentTool !== 'move';
                 const drawingActive =
-                    (currentTool === 'deduction_wall' && deductionLinePoints.length > 0) ||
-                    ((currentTool === 'wall' || currentTool === 'beam') && polygonPoints.length > 0) ||
-                    (['slab', 'cutout', 'column'].includes(currentTool) && polygonPoints.length > 0) ||
-                    (currentTool === 'measure' && measurePoints && measurePoints.length > 0) ||
-                    (currentTool === 'calibrate' && calibratePoints && calibratePoints.length > 0);
-                if (drawingActive) {
-                    cancelDrawing();
-                    try { if (typeof toast === 'function') toast('Drawing cancelled.', 'info'); } catch (_) {}
+                    (polygonPoints && polygonPoints.length > 0) ||
+                    (deductionLinePoints && deductionLinePoints.length > 0) ||
+                    (measurePoints && measurePoints.length > 0) ||
+                    (calibratePoints && calibratePoints.length > 0) ||
+                    !!drawPreview ||
+                    !!continuousTempPreview ||
+                    (continuousDrawPoints && continuousDrawPoints.length > 0);
+                if (drawingActive || isDrawTool) {
+                    exitDrawingMode({ clearSelection: false });
+                    try { if (typeof toast === 'function') toast('Tool cancelled — back to Select.', 'info'); } catch (_) {}
                     return;
                 }
-                // Idle cut/cancel: offer to remove underlay drawing with confirmation
-                if (backgroundImage) {
-                    if (window.confirm('Remove the uploaded drawing underlay from the canvas?\n\nElements stay; only the background plan is cleared.')) {
-                        backgroundImage = null;
-                        const bgc = document.getElementById('bgControls');
-                        if (bgc) bgc.style.display = 'none';
-                        renderCanvas2D();
-                        try { if (typeof toast === 'function') toast('Drawing underlay removed.', 'success'); else alert('Drawing underlay removed.'); } catch (_) { alert('Drawing underlay removed.'); }
-                    }
-                } else {
-                    try { if (typeof toast === 'function') toast('Nothing to cancel — no active drawing or underlay.', 'info'); else alert('Nothing to cancel — no active drawing or underlay.'); } catch (_) { alert('Nothing to cancel — no active drawing or underlay.'); }
+                // No tool active: only clear selection if any
+                if (selectedIds && selectedIds.length) {
+                    selectedIds = [];
+                    renderAll();
+                    try { if (typeof toast === 'function') toast('Selection cleared.', 'info'); } catch (_) {}
+                    return;
                 }
+                try { if (typeof toast === 'function') toast('Nothing to cancel.', 'info'); } catch (_) {}
             });
             const btnDelete = document.getElementById('btnDelete');
             if (btnDelete) btnDelete.addEventListener('click', () => {
