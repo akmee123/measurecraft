@@ -35,6 +35,10 @@
     var markers = [];       // { id, type, wx, wy }
     var history = [];       // stack of marker ids, for Undo Last
     var activeTypeId = null;
+    var selectMode = false;
+    var selectedMarkerId = null;
+    var dragState = null;
+    var suppressNextClick = false;
     var nextMarkerId = 1;
     var rafHandle = null;
     var storageKey = 'mc_manual_count_v1';
@@ -212,7 +216,53 @@
 
         function setActiveType(id) {
             activeTypeId = (activeTypeId === id) ? null : id;
+            selectMode = false;
+            selectedMarkerId = null;
             renderAllUi();
+        }
+
+        function setSelectMode() {
+            selectMode = !selectMode;
+            activeTypeId = null;
+            selectedMarkerId = null;
+            disarm();
+            renderAllUi();
+        }
+
+        function getMarkerById(id) {
+            for (var i = 0; i < markers.length; i++) {
+                if (String(markers[i].id) === String(id)) return markers[i];
+            }
+            return null;
+        }
+
+        function updateBackingElementPosition(marker) {
+            if (!marker || marker.elId == null || typeof elements === 'undefined' || !Array.isArray(elements)) return;
+            var el = null;
+            for (var i = 0; i < elements.length; i++) {
+                if (String(elements[i].id) === String(marker.elId)) { el = elements[i]; break; }
+            }
+            if (!el) return;
+            el.x = marker.wx - (el.w || 1) / 2;
+            el.y = marker.wy - (el.h || 1) / 2;
+            el.locked = false;
+        }
+
+        function selectMarker(id) {
+            var m = getMarkerById(id);
+            if (!m) return;
+            selectedMarkerId = m.id;
+            activeTypeId = null;
+            selectMode = true;
+            renderAllUi();
+        }
+
+        function deleteSelectedMarker() {
+            if (selectedMarkerId == null) return false;
+            var id = selectedMarkerId;
+            selectedMarkerId = null;
+            removeMarker(id);
+            return true;
         }
 
         function arm() { overlay.classList.add('armed'); }
@@ -284,6 +334,13 @@
 
         function renderTypeGrid() {
             typeGrid.innerHTML = '';
+            var selectBtn = document.createElement('button');
+            selectBtn.type = 'button';
+            selectBtn.className = 'mc-count-type-btn' + (selectMode ? ' active' : '');
+            selectBtn.innerHTML = '<i class="fas fa-mouse-pointer"></i><span>Select</span>' +
+                (selectedMarkerId != null ? '<span class="mc-count-type-tally">1</span>' : '');
+            selectBtn.addEventListener('click', setSelectMode);
+            typeGrid.appendChild(selectBtn);
             allTypes().forEach(function (t) {
                 var count = markers.filter(function (m) { return m.type === t.id; }).length;
                 var btn = document.createElement('button');
@@ -303,7 +360,13 @@
         }
 
         function renderStatus() {
-            if (activeTypeId) {
+            if (selectMode) {
+                statusEl.textContent = selectedMarkerId != null
+                    ? 'Selected one count. Drag it to move, or press Delete to remove it.'
+                    : 'Select one count marker. Then drag it to move or press Delete to remove it.';
+                statusEl.classList.remove('armed');
+                disarm();
+            } else if (activeTypeId) {
                 statusEl.textContent = 'Click each ' + typeInfo(activeTypeId).label + ' symbol on the drawing. Click the button again to stop.';
                 statusEl.classList.add('armed');
                 arm();
@@ -365,81 +428,17 @@
                 var info = typeInfo(m.type);
                 var pt = worldToScreen(m.wx, m.wy);
                 var el = document.createElement('div');
-                el.className = 'mc-count-marker';
+                el.className = 'mc-count-marker' + (String(selectedMarkerId) === String(m.id) ? ' mc-count-marker-selected' : '');
                 el.style.setProperty('--mc-count-color', info.color);
                 el.style.left = pt.x + 'px';
                 el.style.top = pt.y + 'px';
-                el.title = info.label;
-                el.innerHTML = '<i class="fas ' + info.icon + '" style="font-size:9px;"></i>';
-                // Count markers must remain draggable after placement.
-                // They are interactive even while the count overlay is armed.
+                el.title = info.label + ' #' + m.id + (selectedMarkerId == null ? ' — drag to move' : '');
+                el.dataset.markerId = String(m.id);
                 el.style.pointerEvents = 'auto';
                 el.style.cursor = 'grab';
-                (function (marker, markerEl) {
-                    var dragging = false;
-                    var moved = false;
-                    var startX = 0, startY = 0;
-                    var startWx = marker.wx, startWy = marker.wy;
-
-                    markerEl.addEventListener('mousedown', function (e) {
-                        if (e.button !== 0) return;
-                        dragging = true;
-                        moved = false;
-                        startX = e.clientX;
-                        startY = e.clientY;
-                        startWx = marker.wx;
-                        startWy = marker.wy;
-                        markerEl.style.cursor = 'grabbing';
-                        e.preventDefault();
-                        e.stopPropagation();
-                    });
-
-                    function moveMarker(e) {
-                        if (!dragging || typeof screenToWorld !== 'function') return;
-                        var dx = e.clientX - startX;
-                        var dy = e.clientY - startY;
-                        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
-                        var base = worldToScreen(startWx, startWy);
-                        var w = screenToWorld(base.x + dx, base.y + dy);
-                        marker.wx = w.x;
-                        marker.wy = w.y;
-
-                        // Keep the hidden backing element synchronized so the
-                        // Elements/Properties representation follows the marker.
-                        if (marker.elId != null && typeof elements !== 'undefined' && Array.isArray(elements)) {
-                            for (var i = 0; i < elements.length; i++) {
-                                if (elements[i] && String(elements[i].id) === String(marker.elId)) {
-                                    elements[i].x = marker.wx - (elements[i].w || 1) / 2;
-                                    elements[i].y = marker.wy - (elements[i].h || 1) / 2;
-                                    elements[i].locked = false;
-                                    break;
-                                }
-                            }
-                        }
-                        syncOverlayMarkers();
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }
-
-                    function finishMarkerDrag(e) {
-                        if (!dragging) return;
-                        dragging = false;
-                        markerEl.style.cursor = 'grab';
-                        if (moved) {
-                            save();
-                            try { if (typeof renderAll === 'function') renderAll(); } catch (_) {}
-                        }
-                        if (e) { e.preventDefault(); e.stopPropagation(); }
-                    }
-
-                    window.addEventListener('mousemove', moveMarker, true);
-                    window.addEventListener('mouseup', finishMarkerDrag, true);
-                    markerEl.addEventListener('click', function (e) {
-                        // A dragged marker must never create a new count.
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }, true);
-                })(m, el);
+                el.style.transform = String(selectedMarkerId) === String(m.id) ? 'scale(1.18)' : 'scale(1)';
+                el.style.outline = String(selectedMarkerId) === String(m.id) ? '2px solid currentColor' : 'none';
+                el.innerHTML = '<i class="fas ' + info.icon + '" style="font-size:9px; pointer-events:none;"></i>';
                 overlay.appendChild(el);
             });
         }
@@ -455,6 +454,14 @@
         }
 
         overlay.addEventListener('click', function (e) {
+            if (suppressNextClick) { suppressNextClick = false; return; }
+            var target = e.target && e.target.closest ? e.target.closest('.mc-count-marker') : null;
+            if (target && target.dataset && target.dataset.markerId != null) {
+                selectMarker(target.dataset.markerId);
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             if (!activeTypeId) return;
             if (typeof getCanvasPointer === 'function' && canvasEl) {
                 var p = getCanvasPointer(e, canvasEl);
@@ -501,6 +508,27 @@
         }, { passive: false });
 
         overlay.addEventListener('mousedown', function (e) {
+            var markerTarget = e.target && e.target.closest ? e.target.closest('.mc-count-marker') : null;
+            if (markerTarget && markerTarget.dataset && markerTarget.dataset.markerId != null && e.button === 0) {
+                var marker = getMarkerById(markerTarget.dataset.markerId);
+                if (marker) {
+                    selectedMarkerId = marker.id;
+                    selectMode = true;
+                    activeTypeId = null;
+                    dragState = {
+                        markerId: marker.id,
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
+                        startWx: marker.wx,
+                        startWy: marker.wy,
+                        moved: false
+                    };
+                    markerTarget.style.cursor = 'grabbing';
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                return;
+            }
             var isPanGesture = e.button === 1 || e.button === 2 || (e.button === 0 && (e.altKey || localSpaceHeld));
             if (!isPanGesture || !canvasEl) return;
             // Forward the initial mousedown to the canvas, then get out of the
@@ -520,6 +548,53 @@
             };
             window.addEventListener('mouseup', restore);
             e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', function (e) {
+            if (!dragState) return;
+            var marker = getMarkerById(dragState.markerId);
+            if (!marker || typeof screenToWorld !== 'function' || !canvasEl) return;
+            var rect = canvasEl.getBoundingClientRect();
+            var world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+            var dx = world.x - dragState.startWx;
+            var dy = world.y - dragState.startWy;
+            if (Math.abs(e.clientX - dragState.startClientX) > 2 || Math.abs(e.clientY - dragState.startClientY) > 2) {
+                dragState.moved = true;
+            }
+            marker.wx = world.x;
+            marker.wy = world.y;
+            updateBackingElementPosition(marker);
+            syncOverlayMarkers();
+            if (dragState.moved) e.preventDefault();
+        }, { passive: false });
+
+        window.addEventListener('mouseup', function (e) {
+            if (!dragState) return;
+            var marker = getMarkerById(dragState.markerId);
+            var moved = dragState.moved;
+            dragState = null;
+            if (moved) {
+                suppressNextClick = true;
+                if (marker) updateBackingElementPosition(marker);
+                save();
+                try { renderAll(); } catch (_) {}
+                renderAllUi();
+            } else if (marker) {
+                selectMarker(marker.id);
+            }
+        });
+
+        window.addEventListener('keydown', function (e) {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedMarkerId != null && !isTypingTargetSafe(e.target)) {
+                e.preventDefault();
+                e.stopPropagation();
+                deleteSelectedMarker();
+            }
+            if (e.key === 'Escape' && selectedMarkerId != null) {
+                selectedMarkerId = null;
+                selectMode = false;
+                renderAllUi();
+            }
         });
 
         toggleBtn.addEventListener('click', togglePanel);
