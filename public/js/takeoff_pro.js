@@ -9190,30 +9190,57 @@
                     }
                 }
                 if (e.key === 'Escape' && !isEditing) {
-                    if (polygonPoints.length > 0 || drawPreview || deductionLinePoints.length > 0) {
-                        cancelDrawing();
+                    e.preventDefault();
+                    // 1) Cancel any in-progress geometry (walls, slabs, deductions, measure, calibrate)
+                    const drawingInProgress =
+                        (polygonPoints && polygonPoints.length > 0) ||
+                        !!drawPreview ||
+                        (deductionLinePoints && deductionLinePoints.length > 0) ||
+                        (measurePoints && measurePoints.length > 0) ||
+                        (calibratePoints && calibratePoints.length > 0) ||
+                        dragMode === 'draw' ||
+                        !!drawStartWorld;
+                    if (drawingInProgress) {
+                        try { cancelDrawing(); } catch (_) {}
                         return;
                     }
-                    if (dragMode === 'draw') {
-                        dragMode = null;
-                        drawStartWorld = null;
-                        drawCurrentWorld = null;
-                        drawPreview = null;
-                        document.getElementById('canvas2d').style.cursor = currentTool ? 'crosshair' : 'default';
-                        document.getElementById('statusMode').textContent = currentTool ? 'Draw: ' + currentTool :
-                            'Select';
-                        renderCanvas2D();
-                        return;
-                    }
-                    if (currentTool) {
+                    // 2) Exit a real drawing tool (not select/move — those are selection modes)
+                    const isDrawTool = currentTool &&
+                        currentTool !== 'select' &&
+                        currentTool !== 'move';
+                    if (isDrawTool) {
                         currentTool = null;
-                        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
-                        document.getElementById('statusMode').textContent = 'Select';
-                        document.getElementById('canvas2d').style.cursor = 'default';
+                        document.querySelectorAll('.tool-btn').forEach(function (b) {
+                            b.classList.remove('tool-active');
+                        });
+                        try {
+                            const sm = document.getElementById('statusMode');
+                            if (sm) sm.textContent = 'Select';
+                            const c = document.getElementById('canvas2d');
+                            if (c) c.style.cursor = 'default';
+                        } catch (_) {}
+                        // Also clear selection so one Esc fully resets the canvas
+                        selectedIds = [];
                         renderAll();
                         return;
                     }
-                    selectedIds = [];
+                    // 3) Clear element selection (works in select/move/null tool modes)
+                    if (selectedIds && selectedIds.length) {
+                        selectedIds = [];
+                        renderAll();
+                        return;
+                    }
+                    // 4) Nothing left — ensure select mode is neutral
+                    currentTool = null;
+                    document.querySelectorAll('.tool-btn').forEach(function (b) {
+                        b.classList.remove('tool-active');
+                    });
+                    try {
+                        const sm = document.getElementById('statusMode');
+                        if (sm) sm.textContent = 'Select';
+                        const c = document.getElementById('canvas2d');
+                        if (c) c.style.cursor = 'default';
+                    } catch (_) {}
                     renderAll();
                 }
             });
