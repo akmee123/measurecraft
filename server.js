@@ -165,10 +165,17 @@ function getModel(opts) {
   }
   const json = !opts || opts.json !== false;
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  // Room-wise takeoff JSON can be large; raise the default output budget so
+  // Gemini is less likely to truncate mid-object (which previously caused
+  // "Could not parse JSON from model").
+  const maxOut = (opts && Number(opts.maxOutputTokens) > 0)
+    ? Number(opts.maxOutputTokens)
+    : (json ? 8192 : 2048);
   return genAI.getGenerativeModel({
     model: GEMINI_MODEL,
     generationConfig: {
       temperature: json ? 0.2 : 0.4,
+      maxOutputTokens: maxOut,
       ...(json ? { responseMimeType: 'application/json' } : {}),
     },
   });
@@ -184,12 +191,91 @@ function parseJsonLoose(text) {
   }
   function repair(s) {
     let u = s;
+    // Trailing commas before } or ]
     u = u.replace(/,\s*([}\]])/g, '$1');
+    // Single-quoted strings → double-quoted (simple cases)
     u = u.replace(/'([^'\\]*)'/g, function (_, inner) {
       return '"' + inner.replace(/"/g, '\\"') + '"';
     });
+    // Control chars that break JSON.parse
     u = u.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
     return u;
+  }
+
+  /** Extract complete top-level {...} objects from a (possibly truncated) array body. */
+  function extractObjectsFromArrayBody(body) {
+    const objects = [];
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (inString) {
+        if (escape) {
+          escape = false;
+        } else if (ch === '\\') {
+          escape = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          const slice = body.slice(start, i + 1);
+          try {
+            objects.push(JSON.parse(repair(slice)));
+          } catch (_) {}
+          start = -1;
+        }
+      }
+    }
+    return objects;
+  }
+
+  /**
+   * When the model truncates mid-response, recover any complete objects from
+   * well-known top-level arrays (rooms, elements, columns). Previously only
+   * "elements" was recovered, so room-wise takeoff failed with:
+   *   Could not parse JSON from model: {"rooms":[...
+   */
+  function recoverTruncatedObject(frag) {
+    const keys = ['rooms', 'elements', 'columns'];
+    const out = {};
+    let recovered = 0;
+    for (const key of keys) {
+      const re = new RegExp('"' + key + '"\\s*:\\s*\\[([\\s\\S]*)');
+      const match = frag.match(re);
+      if (!match) continue;
+      const objects = extractObjectsFromArrayBody(match[1]);
+      if (objects.length) {
+        out[key] = objects;
+        recovered += objects.length;
+      }
+    }
+    if (recovered) {
+      console.warn('parseJsonLoose: recovered', recovered, 'object(s) from truncated JSON keys=', Object.keys(out).join(','));
+      if (!out.summary) out.summary = 'Partial result recovered from truncated model output.';
+      return out;
+    }
+    // Last resort: if the whole payload is a truncated array of objects
+    if (/^\s*\[/.test(frag)) {
+      const objects = extractObjectsFromArrayBody(frag.replace(/^\s*\[/, ''));
+      if (objects.length) {
+        console.warn('parseJsonLoose: recovered', objects.length, 'object(s) from truncated top-level array');
+        return { elements: objects };
+      }
+    }
+    return null;
   }
 
   try {
@@ -203,35 +289,19 @@ function parseJsonLoose(text) {
         try {
           return tryParse(repair(m[0]));
         } catch (e3) {
-          let frag = m[0];
-          const elMatch = frag.match(/"elements"\s*:\s*\[([\s\S]*)/);
-          if (elMatch) {
-            const body = elMatch[1];
-            const objects = [];
-            let depth = 0, start = -1;
-            for (let i = 0; i < body.length; i++) {
-              const ch = body[i];
-              if (ch === '{') {
-                if (depth === 0) start = i;
-                depth++;
-              } else if (ch === '}') {
-                depth--;
-                if (depth === 0 && start >= 0) {
-                  const slice = body.slice(start, i + 1);
-                  try {
-                    objects.push(JSON.parse(repair(slice)));
-                  } catch (_) {}
-                  start = -1;
-                }
-              }
-            }
-            if (objects.length) {
-              console.warn('parseJsonLoose: recovered', objects.length, 'element object(s) from truncated JSON');
-              return { elements: objects };
-            }
-          }
+          const recovered = recoverTruncatedObject(m[0]);
+          if (recovered) return recovered;
+          // Also try recovering from the full (possibly truncated) text, not
+          // only the first balanced-looking span — truncation often cuts
+          // before a closing bracket so the regex above may miss the tail.
+          const recoveredFull = recoverTruncatedObject(t);
+          if (recoveredFull) return recoveredFull;
           console.warn('parseJsonLoose: failed after repair', e3.message);
         }
+      } else {
+        // No closing bracket at all (hard truncation). Still try array recovery.
+        const recoveredFull = recoverTruncatedObject(t);
+        if (recoveredFull) return recoveredFull;
       }
       throw new Error('Could not parse JSON from model: ' + t.slice(0, 120));
     }
@@ -1130,23 +1200,18 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
     ]);
 
     let text = (result.response.text() || '').trim();
-    // Strip accidental markdown fences
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     let parsed;
     try {
-      parsed = JSON.parse(text);
-    } catch (_) {
-      // try to extract first {...}
-      const m = text.match(/\{[\s\S]*\}/);
-      if (!m) {
-        return res.status(502).json({
-          success: false,
-          error: 'Model returned non-JSON. Try again or use a clearer plan image.',
-          code: 'BAD_JSON',
-          raw: text.slice(0, 400),
-        });
-      }
-      parsed = JSON.parse(m[0]);
+      // Shared tolerant parser: strips fences, repairs trailing commas, and
+      // recovers complete room objects when the model truncates mid-JSON.
+      parsed = parseJsonLoose(text);
+    } catch (parseErr) {
+      return res.status(502).json({
+        success: false,
+        error: parseErr.message || 'Model returned non-JSON. Try again or use a clearer plan image.',
+        code: 'BAD_JSON',
+        raw: String(text).slice(0, 400),
+      });
     }
 
     const roomsIn = Array.isArray(parsed.rooms) ? parsed.rooms : [];
