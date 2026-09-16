@@ -417,6 +417,23 @@
             if (e.code === 'Space') localSpaceHeld = false;
         });
 
+        // Escape must ALWAYS leave Count mode, clear the active count type,
+        // release the overlay, and return control to the normal takeoff tools.
+        // This is intentionally a window-level handler so it still works when
+        // the count overlay is sitting above the drawing canvas.
+        window.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' || e.code === 'Escape') {
+                if (isTypingTargetSafe(e.target)) return;
+                activeTypeId = null;
+                disarm();
+                if (panel.style.display !== 'none') panel.style.display = 'none';
+                overlay.style.pointerEvents = '';
+                renderAllUi();
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true);
+
         overlay.addEventListener('wheel', function (e) {
             if (!canvasEl) return;
             try {
