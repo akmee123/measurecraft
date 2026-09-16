@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('assert');
+const {orchestrate,buildProposals,relationshipChecks}=require('../core/agent-orchestrator');
+const sample={rooms:[{name:'Kitchen',floor:{x:10,y:10,w:100,h:80},walls:[{x:10,y:10,w:100,h:5}],doors:[{x:45,y:8,w:10,h:5}],windows:[{x:80,y:10,w:15,h:5}],columns:[{x:20,y:20,w:5,h:5}],confidence:.92,evidence:['room label Kitchen','enclosed boundary'],uncertainty:[]}]};
+const out=orchestrate(sample,{pixelW:200,pixelH:200,calibrated:true});
+assert.equal(out.version,'1.6');
+assert(out.proposals.length>=5);
+assert(out.proposals.every(e=>e.source==='AI' && e.accepted===false && e.reviewStatus==='AI_GENERATED'));
+assert(out.proposals.every(e=>e.provenance && e.intelligence));
+assert(out.preflight.valid);
+const bad={rooms:[{name:'Bad',floor:{x:10,y:10,w:100,h:80},doors:[{x:500,y:500,w:10,h:10}],confidence:.5}]};
+const badOut=orchestrate(bad,{pixelW:200,pixelH:200});
+assert(badOut.reviewQueue.length>0);
+assert(badOut.proposals.some(e=>e.reviewPriority==='high'));
+console.log('Agent orchestrator tests: OK');

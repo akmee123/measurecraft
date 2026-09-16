@@ -1,0 +1,38 @@
+{
+  "name": "measurecraft",
+  "version": "1.7.1",
+  "description": "MeasureCraft \u2014 AI-assisted QS takeoff platform with deterministic core, provenance, validation, agent orchestration and drawing intelligence",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "export-yolo": "node scripts/export-yolo.js",
+    "test-auth": "node -e \"require('./auth'); console.log('auth module ok')\"",
+    "test-wall-identity": "node tests/wall-identity-regression.js",
+    "test-wall-overlap": "node tests/wall-wall-polygon-overlap.js",
+    "test-cutouts": "node tests/area-cutout-holes.js",
+    "test-provenance": "node tests/provenance.js",
+    "test-wiring": "node tests/module-wiring.js",
+    "check": "node --check public/js/modules/boq-parity.js && node --check core/takeoff-engine.js && node --check core/tool-registry.js && node --check core/drawing-intelligence.js && node --check core/agent-orchestrator.js && node --check public/js/modules/takeoff-engine.js && node --check public/js/modules/validation.js && node --check public/js/modules/agent-tools.js && node --check public/js/modules/geometry.js && node --check public/js/modules/provenance.js && node --check public/js/takeoff_pro.js && npm run test-engine && npm run test-boq-parity && npm run test-agent-orchestrator && npm run test-drawing-intelligence && npm run test-wall-identity && npm run test-wall-overlap && npm run test-cutouts && npm run test-provenance && npm run test-wiring",
+    "test-engine": "node tests/takeoff-engine.js",
+    "test-boq-parity": "node tests/boq-parity.js",
+    "test-drawing-intelligence": "node tests/drawing-intelligence.js",
+    "test-agent-orchestrator": "node tests/agent-orchestrator.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1110.0",
+    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  },
+  "optionalDependencies": {
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "sharp": "^0.35.3",
+    "tesseract.js": "^5.1.1"
+  }
+}

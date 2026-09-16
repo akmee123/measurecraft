@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeasureCraft · Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+    <div class="tick-strip" id="tickStrip" aria-hidden="true"></div>
+
+    <div class="login-shell">
+        <!-- Left brand panel -->
+        <aside class="login-brand">
+            <div class="brand-top">
+                <div class="brand-mark">
+                    <img src="logo-icon.png" alt="MeasureCraft" width="40" height="40" />
+                </div>
+                <div class="brand-name">
+                    <strong>MeasureCraft</strong>
+                    <span>AI-POWERED TAKEOFF &amp; QUANTITY DETECTION</span>
+                </div>
+            </div>
+
+            <div class="brand-hero">
+                <h1>Measure plans.<br>Extract quantities.<br><em>Faster.</em></h1>
+                <p class="brand-lead">Upload drawings, run AI detection, calibrate scale, and export takeoffs — for estimators, QS teams, and builders.</p>
+
+                <ul class="feature-list">
+                    <li>
+                        <span class="feat-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+                        </span>
+                        <div>
+                            <strong>AI Detection</strong>
+                            <span>Smart element recognition</span>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feat-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/><path d="M8 6v12"/><path d="M16 6v12"/></svg>
+                        </span>
+                        <div>
+                            <strong>Scale Calibration</strong>
+                            <span>Calibrated to your drawing's scale</span>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feat-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </span>
+                        <div>
+                            <strong>Export Takeoffs</strong>
+                            <span>Accurate BOQs in seconds</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="brand-footer-note">
+                <span class="secure-pill">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Secure &amp; Private
+                </span>
+            </div>
+        </aside>
+
+        <!-- Right form panel -->
+        <main class="login-form-side">
+            <div class="form-card">
+                <div class="form-header">
+                    <h2>Welcome back</h2>
+                    <p>Sign in to continue to MeasureCraft</p>
+                </div>
+
+                <div class="error-msg" id="errorMsg">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span id="errorText">Invalid email or password.</span>
+                </div>
+
+                <div class="social-stack">
+                    <button type="button" class="btn-social" id="btnGoogle" title="Continue with Google">
+                        <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                        Continue with Google
+                    </button>
+                    <div id="googleBtnHost" style="display:none;" aria-hidden="true"></div>
+                    <button type="button" class="btn-social" id="btnMicrosoft" title="Continue with Microsoft">
+                        <svg class="brand-icon" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#00a4ef" d="M12 1h10v10H12z"/><path fill="#7fba00" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>
+                        Continue with Microsoft
+                    </button>
+                    <button type="button" class="btn-social" id="btnApple" title="Continue with Apple">
+                        <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+                        Continue with Apple
+                    </button>
+                </div>
+
+                <div class="or-divider"><span>or</span></div>
+
+                <!-- Primary research join (email + participant) -->
+                <form id="joinForm" autocomplete="on" class="join-form">
+                    <div class="field">
+                        <label for="joinEmail">Email address</label>
+                        <input type="email" id="joinEmail" name="joinEmail" placeholder="Enter your email" required />
+                    </div>
+                    <div class="field">
+                        <label for="joinParticipant">Participant ID</label>
+                        <input type="text" id="joinParticipant" name="joinParticipant" maxlength="64" placeholder="Enter your Participant ID (e.g. P01)" required />
+                    </div>
+                    <input type="checkbox" id="joinRemember" checked style="position:absolute;opacity:0;pointer-events:none;" tabindex="-1" />
+                    <button type="submit" class="btn-primary" id="btnJoinEmail">Continue</button>
+                </form>
+
+                <p class="research-note">Research study access — one email = one permanent Participant ID. IDs cannot be reused.</p>
+
+                <!-- Admin / demo password login -->
+                <details class="admin-details">
+                    <summary>Admin / demo password login</summary>
+                    <form id="loginForm" autocomplete="on" class="admin-form">
+                        <div class="field">
+                            <label for="email">Email address</label>
+                            <div class="input-with-icon">
+                                <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                                <input type="email" id="email" name="email" placeholder="demo@measurecraft.com" />
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="password">Password</label>
+                            <div class="input-with-icon">
+                                <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                <input type="password" id="password" name="password" placeholder="Enter your password" />
+                                <button type="button" class="toggle-pass" id="togglePass" aria-label="Show password">
+                                    <svg class="icon-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    <svg class="icon-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="row-between">
+                            <label class="remember">
+                                <input type="checkbox" id="remember" />
+                                <span>Remember me</span>
+                            </label>
+                            <a href="#" class="forgot" id="forgotLink">Forgot password?</a>
+                        </div>
+                        <button type="submit" class="btn-primary dark" id="btnLogin">
+                            <span class="btn-text">Sign in</span>
+                            <span class="btn-loader">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                            </span>
+                        </button>
+                    </form>
+                </details>
+
+                <p class="signup-line">New to MeasureCraft? <a href="#" id="createAccountLink">Create an account</a></p>
+            </div>
+
+            <div class="side-trust">
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>Secure &amp; Private<br><small>Your data is encrypted</small></span>
+                </div>
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+                    <span>Cloud Sync<br><small>Access anywhere</small></span>
+                </div>
+                <div class="trust-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    <span>Built for Teams<br><small>Collaborate seamlessly</small></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <button type="button" class="theme-toggle theme-toggle-fixed" id="themeToggleDesktop" aria-label="Toggle theme">
+        <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span class="themeLabelDup">Dark</span>
+    </button>
+
+    <button type="button" class="mc-ai-fab" id="mcAiFab" title="AI Assistant" aria-label="Open AI Assistant">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div class="mc-ai-panel" id="mcAiPanel" role="dialog" aria-label="AI Assistant">
+        <div class="mc-ai-head">
+            <span>AI Assistant</span>
+            <div class="mc-ai-actions">
+                <button type="button" id="mcAiClose" title="Close">×</button>
+            </div>
+        </div>
+        <div class="mc-ai-body" id="mcAiBody">
+            <strong>Hi — how can I help?</strong><br><br>
+            Ask about calibration, measuring walls, AI detection, export, or navigation. (Demo replies for now.)
+        </div>
+        <div class="mc-ai-foot">
+            <input type="text" id="mcAiInput" placeholder="Ask something…" autocomplete="off" />
+            <button type="button" id="mcAiSend">Send</button>
+        </div>
+    </div>
+
+    <script src="js/login.js"></script>
+</body>
+</html>

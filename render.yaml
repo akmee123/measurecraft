@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: measurecraft
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: NODE_VERSION
+        value: "20"
+      - key: RESEARCH_ADMIN_TOKEN
+        sync: false
+      - key: RESEARCH_STORAGE
+        value: s3
+      - key: RESEARCH_S3_BUCKET
+        sync: false
+      - key: RESEARCH_S3_REGION
+        value: auto
+      - key: RESEARCH_S3_ENDPOINT
+        sync: false
+      - key: RESEARCH_S3_PREFIX
+        value: measurecraft-research
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
