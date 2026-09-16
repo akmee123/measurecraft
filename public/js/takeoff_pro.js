@@ -1020,7 +1020,8 @@
         let nextId = 1;
         let undoStack = [];
         let redoStack = [];
-        const MAX_UNDO = 30;
+        const MAX_UNDO = 50;
+        let dragUndoSaved = false;
         // Phase 1: named document revisions (separate from undo stack)
         let documentRevisions = [];
         let documentMeta = { id: null, createdAt: null, schemaVersion: 2 };
@@ -1699,11 +1700,45 @@
         }
 
         // ----- UNDO / REDO -----
-        function deepCopy(arr) { return arr.map(el => ({ ...el })); }
+        // Keep complete document snapshots (including nested geometry) rather than
+        // shallow element copies. Count markers are included through MCCountTool so
+        // the toolbar Undo/Redo can correctly undo/redo count placement and deletion.
+        function deepCopy(value) {
+            if (value == null) return value;
+            try { return JSON.parse(JSON.stringify(value)); } catch (_) {}
+            if (Array.isArray(value)) return value.map(deepCopy);
+            if (typeof value === 'object') {
+                const out = {};
+                Object.keys(value).forEach(k => { out[k] = deepCopy(value[k]); });
+                return out;
+            }
+            return value;
+        }
+
+        function captureUndoState() {
+            return {
+                elements: deepCopy(elements),
+                nextId: nextId,
+                count: (window.MCCountTool && typeof window.MCCountTool.getUndoState === 'function')
+                    ? deepCopy(window.MCCountTool.getUndoState()) : null
+            };
+        }
+
+        function restoreUndoState(state) {
+            if (!state) return;
+            elements = deepCopy(Array.isArray(state.elements) ? state.elements : []);
+            if (state.nextId != null) nextId = state.nextId;
+            if (state.count && window.MCCountTool && typeof window.MCCountTool.restoreUndoState === 'function') {
+                try { window.MCCountTool.restoreUndoState(deepCopy(state.count)); } catch (_) {}
+            }
+            selectedIds = [];
+            try { renderAll(); } catch (_) {}
+            try { if (typeof renderQuantityTable === 'function') renderQuantityTable(); } catch (_) {}
+        }
 
         function saveState() {
             if (isConfirmed) return;
-            undoStack.push(deepCopy(elements));
+            undoStack.push(captureUndoState());
             if (undoStack.length > MAX_UNDO) undoStack.shift();
             redoStack = [];
             if (elements && elements.length > 0) markWorkSession();
@@ -1713,18 +1748,14 @@
 
         function undo() {
             if (isConfirmed || undoStack.length === 0) return;
-            redoStack.push(deepCopy(elements));
-            elements = undoStack.pop();
-            selectedIds = [];
-            renderAll();
+            redoStack.push(captureUndoState());
+            restoreUndoState(undoStack.pop());
         }
 
         function redo() {
             if (isConfirmed || redoStack.length === 0) return;
-            undoStack.push(deepCopy(elements));
-            elements = redoStack.pop();
-            selectedIds = [];
-            renderAll();
+            undoStack.push(captureUndoState());
+            restoreUndoState(redoStack.pop());
         }
 
         // ----- ELEMENT FACTORY -----
@@ -9787,6 +9818,15 @@
                     const clickWorld = screenToWorld(startX, startY);
                     const dx = world.x - clickWorld.x,
                         dy = world.y - clickWorld.y;
+                    const willMove = elements.some(function (el) {
+                        if (!isSelectedId(el.id) || el.locked) return false;
+                        const start = dragElementStart[el.id];
+                        return start && (start.x !== start.x + dx || start.y !== start.y + dy);
+                    });
+                    if (willMove && !dragUndoSaved) {
+                        saveState();
+                        dragUndoSaved = true;
+                    }
                     let moved = false;
                     elements.forEach(function (el) {
                         if (isSelectedId(el.id) && !el.locked) {
@@ -9878,7 +9918,6 @@
                             const start = dragElementStart[el.id];
                             if (start && (start.x !== el.x || start.y !== el.y)) markElementEdited(el);
                         });
-                        saveState();
                     }
                     renderAll();
                 }
@@ -9903,6 +9942,7 @@
                     canvas.style.cursor = currentTool ? 'crosshair' : 'default';
                 }
                 mouseDown = false;
+                dragUndoSaved = false;
                 dragMode = null;
                 resizeHandle = null;
                 editingVertex = null;
@@ -9971,6 +10011,7 @@
                     dragMode = null;
                 }
                 mouseDown = false;
+                dragUndoSaved = false;
                 resizeHandle = null;
                 if (dragMode === 'reshape') {
                     dragMode = null;
