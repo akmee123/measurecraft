@@ -48,7 +48,7 @@ function dedupeBoxes(list, iouThreshold=0.8) {
   return out;
 }
 
-function buildGraph(rooms) {
+function buildGraph(rooms, globalColumns=[]) {
   const nodes=[]; const edges=[];
   (rooms||[]).forEach((r,ri)=>{
     const rid=id('room', `${ri}:${r.name}:${JSON.stringify(r.floor)}`);
@@ -62,7 +62,13 @@ function buildGraph(rooms) {
       });
     }
   });
-  // Opening -> nearest wall relationship; column -> containing room relationship.
+  // Global columns are structural elements that may sit outside any detected room.
+  (globalColumns||[]).forEach((c,ii)=>{
+    const b=box(c); if(!b) return;
+    const bid=id('column', `global:${ii}:${JSON.stringify(b)}`);
+    nodes.push({id:bid,type:'column',geometry:b,confidence:clamp01(c.confidence),roomId:null,global:true,evidence:c.evidence||[],uncertainty:c.uncertainty||[]});
+  });
+  // Opening -> nearest wall relationship; global columns intentionally have no containing-room requirement.
   const walls=nodes.filter(n=>n.type==='wall'), openings=nodes.filter(n=>n.type==='door'||n.type==='window');
   for (const o of openings) {
     if (!o.geometry) continue;
@@ -97,19 +103,41 @@ function normalizeRooms(parsed, pixelW, pixelH) {
   return rooms;
 }
 
+function normalizeGlobalColumns(parsed) {
+  const raw=Array.isArray(parsed?.global_columns)?parsed.global_columns:[];
+  const out=[];
+  for (const item of raw) {
+    const b=box(item); if(!b) continue;
+    const dup=out.some(o=>{
+      const ix=Math.max(0,Math.min(b.x+b.w,o.x+o.w)-Math.max(b.x,o.x));
+      const iy=Math.max(0,Math.min(b.y+b.h,o.y+o.h)-Math.max(b.y,o.y));
+      const inter=ix*iy, union=b.w*b.h+o.w*o.h-inter;
+      return union>0 && inter/union>=0.75;
+    });
+    if(!dup) out.push({...b,confidence:clamp01(item.confidence),evidence:Array.isArray(item.evidence)?item.evidence.slice(0,8).map(String):[],uncertainty:Array.isArray(item.uncertainty)?item.uncertainty.slice(0,8).map(String):[]});
+    if(out.length>=150) break;
+  }
+  return out;
+}
+
 function analyze(parsed, meta={}) {
   const rooms=normalizeRooms(parsed, n(meta.pixelW), n(meta.pixelH));
-  const graph=buildGraph(rooms);
-  const counts={rooms:rooms.length,walls:0,doors:0,windows:0,columns:0};
+  const globalColumns=normalizeGlobalColumns(parsed);
+  const graph=buildGraph(rooms, globalColumns);
+  const counts={rooms:rooms.length,walls:0,doors:0,windows:0,columns:globalColumns.length};
   rooms.forEach(r=>{counts.walls+=r.walls.length;counts.doors+=r.doors.length;counts.windows+=r.windows.length;counts.columns+=r.columns.length;});
-  const avg=rooms.length?rooms.reduce((s,r)=>s+r.confidence,0)/rooms.length:0;
+  const avgInputs=rooms.map(r=>r.confidence).concat(globalColumns.map(c=>c.confidence));
+  const avg=avgInputs.length?avgInputs.reduce((s,v)=>s+clamp01(v),0)/avgInputs.length:0;
   return {
     version:'1.0',
     summary: parsed?.summary || `Drawing intelligence found ${counts.rooms} rooms and ${counts.walls} wall runs.`,
     counts,
     confidence:{average:Math.round(avg*1000)/1000,band:avg>=.9?'high':avg>=.7?'review':'check'},
-    rooms, graph,
-    reviewQueue: rooms.flatMap(r=>r.uncertainty.map(reason=>({roomId:r.id,room:r.name,reason,priority:'medium'}))),
+    rooms,
+    globalColumns,
+    graph,
+    reviewQueue: rooms.flatMap(r=>r.uncertainty.map(reason=>({roomId:r.id,room:r.name,reason,priority:'medium'})))
+      .concat(globalColumns.flatMap((c,i)=>c.uncertainty.map(reason=>({roomId:null,room:null,elementType:'column',detectionIndex:i,reason,priority:'medium'})))),
     assumptions:[
       'Bounding boxes are proposals, not surveyed quantities.',
       'Room floor boxes are treated as usable floor-area candidates and require QS verification.',
