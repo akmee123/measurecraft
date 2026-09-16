@@ -1079,16 +1079,12 @@ const AGENT_TAKEOFF_PROMPT = [
   'You are a construction quantity takeoff agent reading a floor plan image.',
   'Detect rooms and measure-worthy elements. Return ONLY valid JSON (no markdown).',
   'Schema:',
-  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n},"walls":[{"x":n,"y":n,"w":n,"h":n}],"doors":[{"x":n,"y":n,"w":n,"h":n}],"windows":[{"x":n,"y":n,"w":n,"h":n}],"columns":[{"x":n,"y":n,"w":n,"h":n}],"confidence":0-1}],"global_columns":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1,"evidence":["string"],"uncertainty":["string"]}],"summary":"one sentence"}',
+  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n},"walls":[{"x":n,"y":n,"w":n,"h":n}],"doors":[{"x":n,"y":n,"w":n,"h":n}],"windows":[{"x":n,"y":n,"w":n,"h":n}],"columns":[{"x":n,"y":n,"w":n,"h":n}],"confidence":0-1}],"summary":"one sentence"}',
   'Rules:',
   '- Coordinates are pixels from the TOP-LEFT of the image (x,y = top-left of box; w,h = size).',
   '- floor = INTERIOR usable floor plate of the room (slab area), not including wall thickness.',
   '- walls = LONG THIN rectangles along each perimeter wall segment of that room (aspect >= 3:1). Split at corners.',
   '- doors / windows = small boxes on openings; columns = small piers.',
-  '- IMPORTANT: columns are GLOBAL structural elements. Do NOT require a column to be inside a detected room. Search the ENTIRE floor-plan image, including columns outside room boundaries, beside external walls, in open areas, at grid intersections, and in spaces not recognized as rooms.',
-  '- If a reference image is supplied for columns, use it as the visual symbol guide and report every matching column in the full floor plan. Do not report the reference crop itself.',
-  '- Return each clearly visible column in global_columns even when it is not associated with any room. Use room.columns only when a column is clearly inside/associated with that room; avoid duplicating a column in both arrays.',
-  '- When the user goal explicitly asks for columns, prioritize a complete whole-sheet column search over room completeness.',
   '- Prefer named rooms from labels on the plan (Bedroom, Kitchen, Toilet, Corridor, etc.).',
   '- Skip title blocks, schedules, legends, and notes outside the plan.',
   '- Include every clearly enclosed room you can see. Empty open areas without walls are not rooms.',
@@ -1154,18 +1150,6 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
     }
 
     const roomsIn = Array.isArray(parsed.rooms) ? parsed.rooms : [];
-    const normalizeBox = (b) => {
-      if (!b || typeof b !== 'object') return null;
-      const x = Number(b.x), y = Number(b.y), bw = Number(b.w), bh = Number(b.h);
-      if (![x, y, bw, bh].every(Number.isFinite) || bw < 2 || bh < 2) return null;
-      return { x, y, w: bw, h: bh };
-    };
-    const globalColumns = Array.isArray(parsed.global_columns)
-      ? parsed.global_columns.map((c) => {
-          const b = normalizeBox(c);
-          return b ? { ...b, confidence: Number.isFinite(Number(c.confidence)) ? Math.max(0, Math.min(1, Number(c.confidence))) : null, evidence: Array.isArray(c.evidence) ? c.evidence.slice(0, 8).map(String) : [], uncertainty: Array.isArray(c.uncertainty) ? c.uncertainty.slice(0, 8).map(String) : [] } : null;
-        }).filter(Boolean).slice(0, 150)
-      : [];
     const rooms = roomsIn.slice(0, 80).map((r, i) => {
       const name = (r && typeof r.name === 'string' && r.name.trim()) ? r.name.trim().slice(0, 80) : `Room ${i + 1}`;
       const box = (b) => {
@@ -1191,8 +1175,6 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
       model: GEMINI_MODEL,
       summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 300) : '',
       room_count: rooms.length,
-      global_columns: globalColumns,
-      column_count: globalColumns.length + rooms.reduce((n, r) => n + r.columns.length, 0),
       rooms,
     });
   } catch (err) {
@@ -1242,7 +1224,6 @@ app.post('/api/agent/analyze', rateLimitAi, requireApiToken, async (req, res) =>
       AGENT_TAKEOFF_PROMPT,
       'DRAWING INTELLIGENCE MODE: return room geometry plus explicit evidence and uncertainty for every room.',
       'For each room include: name, floor box, walls, doors, windows, columns, confidence, evidence[], uncertainty[].',
-      'Also include global_columns[] for every clearly visible column anywhere in the full drawing, regardless of room membership. This is required for column-focused goals.',
       'Evidence must describe only visible drawing cues (labels, boundary lines, symbols).',
       'Uncertainty must identify ambiguity such as occlusion, unclear wall boundary, missing scale, or uncertain room label.',
       'Do not invent dimensions, heights, materials, or hidden geometry.',
@@ -1260,6 +1241,77 @@ app.post('/api/agent/analyze', rateLimitAi, requireApiToken, async (req, res) =>
     console.error('agent/analyze',err);
     const quota=/quota|429|rate limit/i.test(err.message||'');
     res.status(quota?429:500).json({success:false,error:err.message||String(err),code:err.code||(quota?'QUOTA_EXCEEDED':'DRAWING_INTELLIGENCE_FAILED')});
+  }
+});
+
+/**
+ * Dedicated whole-sheet column detection.
+ * This is intentionally separate from room detection because structural columns
+ * can sit outside detected room polygons and are often small at full-sheet scale.
+ */
+const COLUMN_DETECTION_PROMPT = [
+  'You are a construction quantity takeoff vision agent focused ONLY on structural columns in a floor plan.',
+  'Search the ENTIRE supplied floor-plan image from edge to edge. Do not restrict detection to rooms or enclosed spaces.',
+  'Return ONLY valid JSON (no markdown).',
+  'Schema: {"columns":[{"x":number,"y":number,"w":number,"h":number,"confidence":number,"evidence":"string"}],"summary":"string"}',
+  'Coordinates are pixels from the TOP-LEFT of the supplied floor-plan image.',
+  'A column is a structural pier/column symbol, commonly a small square or rectangle, often at grid intersections or wall intersections. It may contain a central crosshair/axis mark.',
+  'Use the attached reference image, if present, ONLY as a visual example of the requested column symbol. The reference image is not part of the floor plan and must never itself be returned as a detection.',
+  'Include columns that are outside rooms, inside rooms, attached to walls, or at grid intersections.',
+  'Do NOT classify dimension text, grid bubbles, toilets, fixtures, furniture, doors, windows, wall ends, or hatch patterns as columns.',
+  'Prefer a conservative set of clearly visible columns. Do not invent hidden columns merely because a structural grid suggests one.',
+  'Return one box per physical column. Do not return duplicate/overlapping boxes for the same column.',
+  'Keep boxes tight around the visible column symbol/footprint, including its square/rectangular body rather than a large surrounding area.',
+  'Confidence must be between 0 and 1.',
+].join('\n');
+
+app.post('/api/agent/detect-columns', rateLimitAi, requireApiToken, async (req, res) => {
+  try {
+    const { image_base64, mime_type, pixel_w, pixel_h, reference_image_base64, reference_mime_type } = req.body || {};
+    if (!image_base64 || typeof image_base64 !== 'string') return res.status(400).json({success:false,error:'image_base64 is required'});
+    if (image_base64.length > 30 * 1024 * 1024) return res.status(400).json({success:false,error:'image_base64 is too large'});
+    const mime=String(mime_type||'image/jpeg').toLowerCase();
+    if (!new Set(['image/jpeg','image/jpg','image/png','image/webp','image/gif']).has(mime)) return res.status(400).json({success:false,error:'Unsupported mime_type'});
+    if (!GEMINI_API_KEY) return res.status(503).json({success:false,error:'GEMINI_API_KEY is not set on the server.',code:'NO_API_KEY'});
+    const w=Number(pixel_w)||0, h=Number(pixel_h)||0;
+    let refMime=null;
+    if (reference_image_base64 && typeof reference_image_base64 === 'string') {
+      refMime=String(reference_mime_type||'image/png').toLowerCase();
+      if (!new Set(['image/jpeg','image/jpg','image/png','image/webp']).has(refMime)) return res.status(400).json({success:false,error:'Unsupported reference_mime_type'});
+      if (reference_image_base64.length > 12 * 1024 * 1024) return res.status(400).json({success:false,error:'reference_image_base64 is too large'});
+    }
+    const model=getModel({json:true});
+    const parts=[
+      {text:COLUMN_DETECTION_PROMPT},
+      {text:w&&h ? `Image size: ${w}×${h} pixels.` : ''},
+      {inlineData:{mimeType:mime==='image/jpg'?'image/jpeg':mime,data:image_base64}},
+    ];
+    if (refMime) parts.push({inlineData:{mimeType:refMime==='image/jpg'?'image/jpeg':refMime,data:reference_image_base64}});
+    const result=await model.generateContent(parts);
+    const parsed=parseJsonLoose(result.response.text());
+    const cols=Array.isArray(parsed?.columns)?parsed.columns:[];
+    const seen=[];
+    const iou=(a,b)=>{
+      const ix=Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x));
+      const iy=Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
+      const inter=ix*iy, union=a.w*a.h+b.w*b.h-inter;
+      return union>0?inter/union:0;
+    };
+    for (const c of cols.slice(0,200)) {
+      if (!c || typeof c!=='object') continue;
+      const x=Number(c.x),y=Number(c.y),cw=Number(c.w),ch=Number(c.h),confidence=Number(c.confidence);
+      if (![x,y,cw,ch].every(Number.isFinite) || cw<3 || ch<3) continue;
+      if (w&&h && (x+cw<0 || y+ch<0 || x>w || y>h)) continue;
+      const aspect=Math.max(cw,ch)/Math.max(1,Math.min(cw,ch));
+      if (aspect>2.2) continue;
+      if (seen.some(o=>iou(o,{x,y,w:cw,h:ch})>=0.65)) continue;
+      seen.push({x,y,w:cw,h:ch,confidence:Number.isFinite(confidence)?Math.max(0,Math.min(1,confidence)):0.75,evidence:typeof c.evidence==='string'?c.evidence.slice(0,240):''});
+    }
+    res.json({success:true,model:GEMINI_MODEL,summary:typeof parsed?.summary==='string'?parsed.summary.slice(0,300):`Dedicated column scan found ${seen.length} column(s).`,column_count:seen.length,columns:seen});
+  } catch(err) {
+    console.error('agent/detect-columns',err);
+    const quota=/quota|429|rate limit/i.test(err.message||'');
+    res.status(quota?429:500).json({success:false,error:err.message||String(err),code:err.code||(quota?'QUOTA_EXCEEDED':'COLUMN_DETECTION_FAILED')});
   }
 });
 
