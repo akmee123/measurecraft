@@ -203,7 +203,6 @@
         }
         function closePanel() {
             panel.style.display = 'none';
-            activeTypeId = null;
             disarm();
         }
         function togglePanel() {
@@ -359,9 +358,6 @@
             syncOverlayMarkers();
         }
 
-        var draggingMarker = null;
-        var dragMarkerOffset = null;
-
         function syncOverlayMarkers() {
             if (typeof worldToScreen !== 'function') return;
             overlay.innerHTML = '';
@@ -370,14 +366,80 @@
                 var pt = worldToScreen(m.wx, m.wy);
                 var el = document.createElement('div');
                 el.className = 'mc-count-marker';
-                el.dataset.markerId = String(m.id);
                 el.style.setProperty('--mc-count-color', info.color);
                 el.style.left = pt.x + 'px';
                 el.style.top = pt.y + 'px';
-                el.title = info.label + ' — drag to move';
+                el.title = info.label;
+                el.innerHTML = '<i class="fas ' + info.icon + '" style="font-size:9px;"></i>';
+                // Count markers must remain draggable after placement.
+                // They are interactive even while the count overlay is armed.
                 el.style.pointerEvents = 'auto';
-                el.style.cursor = 'move';
-                el.innerHTML = '<i class="fas ' + info.icon + '" style="font-size:9px;pointer-events:none;"></i>';
+                el.style.cursor = 'grab';
+                (function (marker, markerEl) {
+                    var dragging = false;
+                    var moved = false;
+                    var startX = 0, startY = 0;
+                    var startWx = marker.wx, startWy = marker.wy;
+
+                    markerEl.addEventListener('mousedown', function (e) {
+                        if (e.button !== 0) return;
+                        dragging = true;
+                        moved = false;
+                        startX = e.clientX;
+                        startY = e.clientY;
+                        startWx = marker.wx;
+                        startWy = marker.wy;
+                        markerEl.style.cursor = 'grabbing';
+                        e.preventDefault();
+                        e.stopPropagation();
+                    });
+
+                    function moveMarker(e) {
+                        if (!dragging || typeof screenToWorld !== 'function') return;
+                        var dx = e.clientX - startX;
+                        var dy = e.clientY - startY;
+                        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
+                        var base = worldToScreen(startWx, startWy);
+                        var w = screenToWorld(base.x + dx, base.y + dy);
+                        marker.wx = w.x;
+                        marker.wy = w.y;
+
+                        // Keep the hidden backing element synchronized so the
+                        // Elements/Properties representation follows the marker.
+                        if (marker.elId != null && typeof elements !== 'undefined' && Array.isArray(elements)) {
+                            for (var i = 0; i < elements.length; i++) {
+                                if (elements[i] && String(elements[i].id) === String(marker.elId)) {
+                                    elements[i].x = marker.wx - (elements[i].w || 1) / 2;
+                                    elements[i].y = marker.wy - (elements[i].h || 1) / 2;
+                                    elements[i].locked = false;
+                                    break;
+                                }
+                            }
+                        }
+                        syncOverlayMarkers();
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+
+                    function finishMarkerDrag(e) {
+                        if (!dragging) return;
+                        dragging = false;
+                        markerEl.style.cursor = 'grab';
+                        if (moved) {
+                            save();
+                            try { if (typeof renderAll === 'function') renderAll(); } catch (_) {}
+                        }
+                        if (e) { e.preventDefault(); e.stopPropagation(); }
+                    }
+
+                    window.addEventListener('mousemove', moveMarker, true);
+                    window.addEventListener('mouseup', finishMarkerDrag, true);
+                    markerEl.addEventListener('click', function (e) {
+                        // A dragged marker must never create a new count.
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }, true);
+                })(m, el);
                 overlay.appendChild(el);
             });
         }
@@ -392,62 +454,7 @@
             rafHandle = requestAnimationFrame(tick);
         }
 
-        // Count markers are movable. Dragging a marker updates both the visible
-        // marker and its hidden backing element without changing the count.
-        overlay.addEventListener('mousedown', function (e) {
-            if (e.button !== 0 || !activeTypeId) return;
-            var markerEl = e.target && e.target.closest ? e.target.closest('.mc-count-marker') : null;
-            if (!markerEl) return;
-            var markerId = markerEl.dataset.markerId;
-            var marker = markers.find(function (m) { return String(m.id) === String(markerId); });
-            if (!marker || typeof worldToScreen !== 'function') return;
-            var rect = overlay.getBoundingClientRect();
-            var pt = worldToScreen(marker.wx, marker.wy);
-            draggingMarker = marker;
-            dragMarkerOffset = {
-                x: (e.clientX - rect.left) - pt.x,
-                y: (e.clientY - rect.top) - pt.y
-            };
-            e.preventDefault();
-            e.stopPropagation();
-        });
-
-        window.addEventListener('mousemove', function (e) {
-            if (!draggingMarker || typeof screenToWorld !== 'function') return;
-            var rect = overlay.getBoundingClientRect();
-            var sx = (e.clientX - rect.left) - (dragMarkerOffset ? dragMarkerOffset.x : 0);
-            var sy = (e.clientY - rect.top) - (dragMarkerOffset ? dragMarkerOffset.y : 0);
-            var world = screenToWorld(sx, sy);
-            draggingMarker.wx = world.x;
-            draggingMarker.wy = world.y;
-
-            if (draggingMarker.elId != null && typeof elements !== 'undefined' && Array.isArray(elements)) {
-                var backing = elements.find(function (x) {
-                    return x && String(x.id) === String(draggingMarker.elId);
-                });
-                if (backing) {
-                    backing.x = world.x - (backing.w || 1) / 2;
-                    backing.y = world.y - (backing.h || 1) / 2;
-                }
-            }
-            syncOverlayMarkers();
-            e.preventDefault();
-        });
-
-        window.addEventListener('mouseup', function () {
-            if (!draggingMarker) return;
-            draggingMarker = null;
-            dragMarkerOffset = null;
-            save();
-            try { renderAll(); } catch (_) {}
-        });
-
         overlay.addEventListener('click', function (e) {
-            if (e.target && e.target.closest && e.target.closest('.mc-count-marker')) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
             if (!activeTypeId) return;
             if (typeof getCanvasPointer === 'function' && canvasEl) {
                 var p = getCanvasPointer(e, canvasEl);
@@ -493,8 +500,11 @@
             e.preventDefault();
         }, { passive: false });
 
-        function forwardMouseDownToCanvas(e) {
-            if (!canvasEl) return;
+        overlay.addEventListener('mousedown', function (e) {
+            var isPanGesture = e.button === 1 || e.button === 2 || (e.button === 0 && (e.altKey || localSpaceHeld));
+            if (!isPanGesture || !canvasEl) return;
+            // Forward the initial mousedown to the canvas, then get out of the
+            // way for the rest of the drag so native pan handling takes over.
             try {
                 var down = new MouseEvent('mousedown', {
                     clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons,
@@ -505,62 +515,12 @@
             } catch (_) {}
             overlay.style.pointerEvents = 'none';
             var restore = function () {
-                overlay.style.pointerEvents = '';
+                overlay.style.pointerEvents = ''; // let the .armed CSS class govern again
                 window.removeEventListener('mouseup', restore);
             };
             window.addEventListener('mouseup', restore);
-        }
-
-        overlay.addEventListener('mousedown', function (e) {
-            // A marker drag is handled by the dedicated handler above.
-            if (e.target && e.target.closest && e.target.closest('.mc-count-marker')) return;
-
-            var isPanGesture = e.button === 1 || e.button === 2 || (e.button === 0 && (e.altKey || localSpaceHeld));
-            if (!canvasEl) return;
-
-            // Navigation/measurement/drawing tools must never be trapped by the
-            // count overlay. Once the user chooses another tool, let the main
-            // canvas receive the event normally.
-            var tool = (typeof currentTool !== 'undefined') ? currentTool : 'select';
-            if (isPanGesture || (e.button === 0 && tool && tool !== 'select' && tool !== 'move')) {
-                forwardMouseDownToCanvas(e);
-                e.preventDefault();
-                return;
-            }
-
-            // In Select/Move mode, clicks on an existing drawing element are
-            // normal selection/drag operations. Only empty-space clicks create
-            // a new count marker.
-            if (e.button === 0 && (tool === 'select' || tool === 'move') &&
-                typeof screenToWorld === 'function' && typeof hitTestAllElements === 'function') {
-                var rect = canvasEl.getBoundingClientRect();
-                var sx = e.clientX - rect.left;
-                var sy = e.clientY - rect.top;
-                var world = screenToWorld(sx, sy);
-                var hits = [];
-                try { hits = hitTestAllElements(world) || []; } catch (_) {}
-                var realHit = hits.some(function (el) {
-                    return el && !el.hidden && !(el.isCount || (typeof el.type === 'string' && el.type.indexOf('count_') === 0));
-                });
-                if (realHit) {
-                    forwardMouseDownToCanvas(e);
-                    e.preventDefault();
-                    return;
-                }
-            }
+            e.preventDefault();
         });
-
-        // Choosing any other toolbar tool exits count placement immediately.
-        // This prevents the transparent count overlay from locking the rest of
-        // the takeoff workflow after a count has been placed.
-        document.addEventListener('click', function (e) {
-            if (!activeTypeId) return;
-            var btn = e.target && e.target.closest ? e.target.closest('.tool-btn, [data-tool]') : null;
-            if (!btn) return;
-            activeTypeId = null;
-            disarm();
-            renderAllUi();
-        }, true);
 
         toggleBtn.addEventListener('click', togglePanel);
         closeBtn.addEventListener('click', closePanel);
