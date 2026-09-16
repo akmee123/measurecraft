@@ -197,21 +197,27 @@
 
         function openPanel() {
             panel.style.display = 'flex';
+            // Recover from a previous Done that left the overlay unclickable
+            try { overlay.style.pointerEvents = ''; } catch (_) {}
             pruneOrphanMarkers();
             renderAllUi();
             startSyncLoop();
+            try { syncOverlayMarkers(); } catch (_) {}
         }
         function closePanel() {
             panel.style.display = 'none';
             activeTypeId = null;
             disarm();
-            // Fully release the canvas so count markers can be selected/moved
-            // after Done (OK). Previously the overlay could keep intercepting.
+            // Markers stay visible on the plan; overlay does not capture clicks
+            // so normal select/move works. Never leave a permanent inline
+            // pointer-events style — that blocked counting after Done.
             try {
                 overlay.classList.remove('armed');
-                overlay.style.pointerEvents = 'none';
+                overlay.style.pointerEvents = '';
             } catch (_) {}
             renderAllUi();
+            // Keep markers drawn even when panel is closed
+            try { syncOverlayMarkers(); } catch (_) {}
         }
         function togglePanel() {
             if (panel.style.display === 'none' || !panel.style.display) openPanel();
@@ -223,8 +229,16 @@
             renderAllUi();
         }
 
-        function arm() { overlay.classList.add('armed'); }
-        function disarm() { overlay.classList.remove('armed'); }
+        function arm() {
+            overlay.classList.add('armed');
+            // Clear any leftover inline style so .armed { pointer-events:auto } wins
+            overlay.style.pointerEvents = '';
+        }
+        function disarm() {
+            overlay.classList.remove('armed');
+            // CSS default is pointer-events:none — clear inline override
+            overlay.style.pointerEvents = '';
+        }
 
         function addCustomType() {
             var label = window.prompt('Name of the custom object to count (e.g. "Extract Fan"):');
@@ -240,14 +254,26 @@
 
         function placeMarker(sx, sy) {
             if (!activeTypeId) return;
-            if (typeof screenToWorld !== 'function') return;
+            if (typeof screenToWorld !== 'function') {
+                console.warn('[count-tool] screenToWorld unavailable — cannot place marker');
+                return;
+            }
+            // Ensure overlay is armed so subsequent clicks keep working
+            arm();
             var world = screenToWorld(sx, sy);
+            if (!world || !isFinite(world.x) || !isFinite(world.y)) return;
             var marker = { id: nextMarkerId++, type: activeTypeId, wx: world.x, wy: world.y, elId: null };
             marker.elId = addBackingElement(marker);
             markers.push(marker);
             history.push(marker.id);
             save();
             renderAllUi();
+            // Immediate paint so the marker appears on the PDF right away
+            try { syncOverlayMarkers(); } catch (_) {}
+            try {
+                if (typeof renderAll === 'function') renderAll();
+                else if (typeof renderCanvas2D === 'function') renderCanvas2D();
+            } catch (_) {}
         }
 
         function undoLast() {
@@ -436,11 +462,10 @@
             var counting = !!activeTypeId || panelOpen || overlay.classList.contains('armed');
             if (!counting) return; // let takeoff_pro handle Esc (exit draw tools, clear selection)
             activeTypeId = null;
-            disarm();
             panel.style.display = 'none';
-            overlay.style.pointerEvents = '';
-            overlay.classList.remove('armed');
+            disarm();
             renderAllUi();
+            try { syncOverlayMarkers(); } catch (_) {}
             e.preventDefault();
             e.stopPropagation();
         }, true);
