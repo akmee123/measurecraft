@@ -1020,8 +1020,7 @@
         let nextId = 1;
         let undoStack = [];
         let redoStack = [];
-        const MAX_UNDO = 50;
-        let dragUndoSaved = false;
+        const MAX_UNDO = 30;
         // Phase 1: named document revisions (separate from undo stack)
         let documentRevisions = [];
         let documentMeta = { id: null, createdAt: null, schemaVersion: 2 };
@@ -1700,45 +1699,11 @@
         }
 
         // ----- UNDO / REDO -----
-        // Keep complete document snapshots (including nested geometry) rather than
-        // shallow element copies. Count markers are included through MCCountTool so
-        // the toolbar Undo/Redo can correctly undo/redo count placement and deletion.
-        function deepCopy(value) {
-            if (value == null) return value;
-            try { return JSON.parse(JSON.stringify(value)); } catch (_) {}
-            if (Array.isArray(value)) return value.map(deepCopy);
-            if (typeof value === 'object') {
-                const out = {};
-                Object.keys(value).forEach(k => { out[k] = deepCopy(value[k]); });
-                return out;
-            }
-            return value;
-        }
-
-        function captureUndoState() {
-            return {
-                elements: deepCopy(elements),
-                nextId: nextId,
-                count: (window.MCCountTool && typeof window.MCCountTool.getUndoState === 'function')
-                    ? deepCopy(window.MCCountTool.getUndoState()) : null
-            };
-        }
-
-        function restoreUndoState(state) {
-            if (!state) return;
-            elements = deepCopy(Array.isArray(state.elements) ? state.elements : []);
-            if (state.nextId != null) nextId = state.nextId;
-            if (state.count && window.MCCountTool && typeof window.MCCountTool.restoreUndoState === 'function') {
-                try { window.MCCountTool.restoreUndoState(deepCopy(state.count)); } catch (_) {}
-            }
-            selectedIds = [];
-            try { renderAll(); } catch (_) {}
-            try { if (typeof renderQuantityTable === 'function') renderQuantityTable(); } catch (_) {}
-        }
+        function deepCopy(arr) { return arr.map(el => ({ ...el })); }
 
         function saveState() {
             if (isConfirmed) return;
-            undoStack.push(captureUndoState());
+            undoStack.push(deepCopy(elements));
             if (undoStack.length > MAX_UNDO) undoStack.shift();
             redoStack = [];
             if (elements && elements.length > 0) markWorkSession();
@@ -1748,14 +1713,18 @@
 
         function undo() {
             if (isConfirmed || undoStack.length === 0) return;
-            redoStack.push(captureUndoState());
-            restoreUndoState(undoStack.pop());
+            redoStack.push(deepCopy(elements));
+            elements = undoStack.pop();
+            selectedIds = [];
+            renderAll();
         }
 
         function redo() {
             if (isConfirmed || redoStack.length === 0) return;
-            undoStack.push(captureUndoState());
-            restoreUndoState(redoStack.pop());
+            undoStack.push(deepCopy(elements));
+            elements = redoStack.pop();
+            selectedIds = [];
+            renderAll();
         }
 
         // ----- ELEMENT FACTORY -----
@@ -4234,6 +4203,41 @@
             return any ? scope : all;
         }
 
+        function agentStageGlobalColumn(column, toWorldScale, cf) {
+            if (!column) return null;
+            const b = pxBoxToWorld(column, toWorldScale);
+            const conf = Number.isFinite(Number(column.confidence)) ? Number(column.confidence) : 0.75;
+            const intelligence = {
+                roomId: null,
+                global: true,
+                evidence: Array.isArray(column.evidence) ? column.evidence.slice(0, 8) : [],
+                uncertainty: Array.isArray(column.uncertainty) ? column.uncertainty.slice(0, 8) : [],
+                kind: 'column',
+                detectionIndex: Number.isFinite(Number(column.detectionIndex)) ? Number(column.detectionIndex) : null
+            };
+            const el = createElement('column', b.x, b.y, b.w, b.h, {
+                source: 'AI_AGENT',
+                reviewStatus: 'AI_GENERATED',
+                confidence: conf,
+                layer: 'Structural',
+                label: 'AI column ' + ((column.detectionIndex || 0) + 1),
+                intelligence: intelligence,
+                zHeight: 3.0,
+                aiGlobal: true,
+            });
+            if (typeof ensureElementVertices === 'function') ensureElementVertices(el);
+            return el;
+        }
+
+        function agentBoxIoU(a, b) {
+            if (!a || !b) return 0;
+            const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+            const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+            const inter = ix * iy;
+            const union = a.w * a.h + b.w * b.h - inter;
+            return union > 0 ? inter / union : 0;
+        }
+
         function agentStageRoom(room, toWorldScale, cf, scope) {
             const created = [];
             const name = room.name || 'Room';
@@ -4487,18 +4491,42 @@
                     r.windows = (r.windows || []).map(up);
                     r.columns = (r.columns || []).map(up);
                 });
+                const globalColumns = (Array.isArray(data.globalColumns) ? data.globalColumns : (Array.isArray(data.global_columns) ? data.global_columns : []))
+                    .map(function (c, i) {
+                        if (!c) return null;
+                        return {
+                            x: c.x * sendToPixel, y: c.y * sendToPixel, w: c.w * sendToPixel, h: c.h * sendToPixel,
+                            confidence: c.confidence, evidence: c.evidence, uncertainty: c.uncertainty, detectionIndex: i
+                        };
+                    }).filter(Boolean);
 
                 if (data.summary) agentLog(data.summary, 'dim');
                 if (data.counts) agentLog('Intelligence graph · ' + (data.counts.walls||0) + ' walls · ' + (data.counts.doors||0) + ' doors · ' + (data.counts.windows||0) + ' windows · ' + (data.counts.columns||0) + ' columns', 'dim');
+                if (globalColumns.length) agentLog('Whole-sheet column search found ' + globalColumns.length + ' column candidate(s).', 'ok');
                 if (Array.isArray(data.reviewQueue) && data.reviewQueue.length) agentLog('Review queue: ' + data.reviewQueue.length + ' uncertainty item(s).', 'err');
-                agentLog('Found ' + rooms.length + ' room(s). Staging as AI proposals — QS review required.', 'ok');
+                agentLog('Found ' + rooms.length + ' room(s) and ' + globalColumns.length + ' global column(s). Staging as AI proposals — QS review required.', 'ok');
 
-                if (!rooms.length) {
-                    agentLog('No rooms detected. Try a clearer plan or calibrate and re-run.', 'err');
+                if (!rooms.length && !globalColumns.length) {
+                    agentLog('No rooms or global columns detected. Try a clearer plan or calibrate and re-run.', 'err');
                     return;
                 }
 
-                let totalArea = 0, totalWall = 0, totalDoors = 0, totalWindows = 0, totalEls = 0;
+                let totalArea = 0, totalWall = 0, totalDoors = 0, totalWindows = 0, totalEls = 0, totalGlobalColumns = 0;
+
+                // Stage global columns first. These are intentionally independent of room detection.
+                // Skip a global candidate only when it substantially overlaps a room-associated column.
+                globalColumns.forEach(function (gc) {
+                    const duplicate = rooms.some(function (r) {
+                        return (r.columns || []).some(function (rc) { return agentBoxIoU(gc, rc) >= 0.75; });
+                    });
+                    if (duplicate) return;
+                    const el = agentStageGlobalColumn(gc, toWorldScale, cf || 1);
+                    if (el) {
+                        elements.push(el);
+                        totalEls += 1;
+                        totalGlobalColumns += 1;
+                    }
+                });
 
                 for (let i = 0; i < rooms.length; i++) {
                     if (_agentAbort) {
@@ -9818,15 +9846,6 @@
                     const clickWorld = screenToWorld(startX, startY);
                     const dx = world.x - clickWorld.x,
                         dy = world.y - clickWorld.y;
-                    const willMove = elements.some(function (el) {
-                        if (!isSelectedId(el.id) || el.locked) return false;
-                        const start = dragElementStart[el.id];
-                        return start && (start.x !== start.x + dx || start.y !== start.y + dy);
-                    });
-                    if (willMove && !dragUndoSaved) {
-                        saveState();
-                        dragUndoSaved = true;
-                    }
                     let moved = false;
                     elements.forEach(function (el) {
                         if (isSelectedId(el.id) && !el.locked) {
@@ -9918,6 +9937,7 @@
                             const start = dragElementStart[el.id];
                             if (start && (start.x !== el.x || start.y !== el.y)) markElementEdited(el);
                         });
+                        saveState();
                     }
                     renderAll();
                 }
@@ -9942,7 +9962,6 @@
                     canvas.style.cursor = currentTool ? 'crosshair' : 'default';
                 }
                 mouseDown = false;
-                dragUndoSaved = false;
                 dragMode = null;
                 resizeHandle = null;
                 editingVertex = null;
@@ -10011,7 +10030,6 @@
                     dragMode = null;
                 }
                 mouseDown = false;
-                dragUndoSaved = false;
                 resizeHandle = null;
                 if (dragMode === 'reshape') {
                     dragMode = null;
