@@ -4203,41 +4203,6 @@
             return any ? scope : all;
         }
 
-        function agentStageGlobalColumn(column, toWorldScale, cf) {
-            if (!column) return null;
-            const b = pxBoxToWorld(column, toWorldScale);
-            const conf = Number.isFinite(Number(column.confidence)) ? Number(column.confidence) : 0.75;
-            const intelligence = {
-                roomId: null,
-                global: true,
-                evidence: Array.isArray(column.evidence) ? column.evidence.slice(0, 8) : [],
-                uncertainty: Array.isArray(column.uncertainty) ? column.uncertainty.slice(0, 8) : [],
-                kind: 'column',
-                detectionIndex: Number.isFinite(Number(column.detectionIndex)) ? Number(column.detectionIndex) : null
-            };
-            const el = createElement('column', b.x, b.y, b.w, b.h, {
-                source: 'AI_AGENT',
-                reviewStatus: 'AI_GENERATED',
-                confidence: conf,
-                layer: 'Structural',
-                label: 'AI column ' + ((column.detectionIndex || 0) + 1),
-                intelligence: intelligence,
-                zHeight: 3.0,
-                aiGlobal: true,
-            });
-            if (typeof ensureElementVertices === 'function') ensureElementVertices(el);
-            return el;
-        }
-
-        function agentBoxIoU(a, b) {
-            if (!a || !b) return 0;
-            const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
-            const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-            const inter = ix * iy;
-            const union = a.w * a.h + b.w * b.h - inter;
-            return union > 0 ? inter / union : 0;
-        }
-
         function agentStageRoom(room, toWorldScale, cf, scope) {
             const created = [];
             const name = room.name || 'Room';
@@ -4338,6 +4303,42 @@
             });
 
             return created;
+        }
+
+        function agentStageGlobalColumns(columns, toWorldScale) {
+            const created = [];
+            (columns || []).forEach(function (cb, i) {
+                if (!cb) return;
+                const b = pxBoxToWorld(cb, toWorldScale);
+                const conf = Number.isFinite(Number(cb.confidence)) ? Math.max(0, Math.min(1, Number(cb.confidence))) : 0.75;
+                const intelligence = {
+                    roomId: null,
+                    evidence: cb.evidence ? [String(cb.evidence).slice(0,240)] : ['Dedicated whole-sheet column scan'],
+                    uncertainty: [],
+                    scope: 'global_column_scan'
+                };
+                const el = createElement('column', b.x, b.y, b.w, b.h, {
+                    source: 'AI_AGENT',
+                    reviewStatus: 'AI_GENERATED',
+                    confidence: conf,
+                    layer: 'Structural',
+                    label: 'AI Column ' + (i + 1),
+                    intelligence: intelligence,
+                    zHeight: 3.0,
+                });
+                if (typeof ensureElementVertices === 'function') ensureElementVertices(el);
+                created.push(el);
+            });
+            return created;
+        }
+
+        function boxesOverlapRatio(a, b) {
+            if (!a || !b) return 0;
+            const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+            const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+            const inter = ix * iy;
+            const smaller = Math.min(a.w * a.h, b.w * b.h);
+            return smaller > 0 ? inter / smaller : 0;
         }
 
         function agentRoomQtyLine(room, toWorldScale, cf, scope) {
@@ -4491,42 +4492,68 @@
                     r.windows = (r.windows || []).map(up);
                     r.columns = (r.columns || []).map(up);
                 });
-                const globalColumns = (Array.isArray(data.globalColumns) ? data.globalColumns : (Array.isArray(data.global_columns) ? data.global_columns : []))
-                    .map(function (c, i) {
-                        if (!c) return null;
-                        return {
-                            x: c.x * sendToPixel, y: c.y * sendToPixel, w: c.w * sendToPixel, h: c.h * sendToPixel,
-                            confidence: c.confidence, evidence: c.evidence, uncertainty: c.uncertainty, detectionIndex: i
-                        };
-                    }).filter(Boolean);
+
+                // Small columns are easy to miss in a room-wise pass. Whenever
+                // columns are requested, run a dedicated whole-sheet vision pass.
+                let globalColumns = [];
+                if (scope.columns) {
+                    agentLog('Running dedicated whole-sheet column scan…', 'dim');
+                    const colResp = await fetch('/api/agent/detect-columns', {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify({
+                            image_base64: sendBase64,
+                            mime_type: sendMime,
+                            pixel_w: sendW,
+                            pixel_h: sendH,
+                            reference_image_base64: _agentRefImage ? _agentRefImage.base64 : undefined,
+                            reference_mime_type: _agentRefImage ? _agentRefImage.mime : undefined,
+                        }),
+                    });
+                    const colData = await colResp.json().catch(function(){ return {}; });
+                    if (!colResp.ok || !colData.success) {
+                        agentLog('Dedicated column scan failed; continuing with room detections.', 'err');
+                    } else {
+                        globalColumns = (Array.isArray(colData.columns) ? colData.columns : []).map(function(c){
+                            return { x:c.x*sendToPixel, y:c.y*sendToPixel, w:c.w*sendToPixel, h:c.h*sendToPixel, confidence:c.confidence, evidence:c.evidence };
+                        });
+                        // Do not stage a second copy when the room-wise result already
+                        // contains the same physical column.
+                        const roomColumns = [];
+                        rooms.forEach(function(r){ (r.columns || []).forEach(function(c){ roomColumns.push(c); }); });
+                        globalColumns = globalColumns.filter(function(c){
+                            return !roomColumns.some(function(r){ return boxesOverlapRatio(c,r) >= 0.65; });
+                        });
+                        agentLog((colData.summary || ('Dedicated column scan found ' + globalColumns.length + ' new column(s).')), 'ok');
+                    }
+                }
 
                 if (data.summary) agentLog(data.summary, 'dim');
                 if (data.counts) agentLog('Intelligence graph · ' + (data.counts.walls||0) + ' walls · ' + (data.counts.doors||0) + ' doors · ' + (data.counts.windows||0) + ' windows · ' + (data.counts.columns||0) + ' columns', 'dim');
-                if (globalColumns.length) agentLog('Whole-sheet column search found ' + globalColumns.length + ' column candidate(s).', 'ok');
                 if (Array.isArray(data.reviewQueue) && data.reviewQueue.length) agentLog('Review queue: ' + data.reviewQueue.length + ' uncertainty item(s).', 'err');
-                agentLog('Found ' + rooms.length + ' room(s) and ' + globalColumns.length + ' global column(s). Staging as AI proposals — QS review required.', 'ok');
+                agentLog('Found ' + rooms.length + ' room(s). Staging as AI proposals — QS review required.', 'ok');
 
-                if (!rooms.length && !globalColumns.length) {
-                    agentLog('No rooms or global columns detected. Try a clearer plan or calibrate and re-run.', 'err');
+                if (!rooms.length && !scope.columns) {
+                    agentLog('No rooms detected. Try a clearer plan or calibrate and re-run.', 'err');
                     return;
                 }
 
-                let totalArea = 0, totalWall = 0, totalDoors = 0, totalWindows = 0, totalEls = 0, totalGlobalColumns = 0;
+                let totalArea = 0, totalWall = 0, totalDoors = 0, totalWindows = 0, totalColumns = 0, totalEls = 0;
 
-                // Stage global columns first. These are intentionally independent of room detection.
-                // Skip a global candidate only when it substantially overlaps a room-associated column.
-                globalColumns.forEach(function (gc) {
-                    const duplicate = rooms.some(function (r) {
-                        return (r.columns || []).some(function (rc) { return agentBoxIoU(gc, rc) >= 0.75; });
-                    });
-                    if (duplicate) return;
-                    const el = agentStageGlobalColumn(gc, toWorldScale, cf || 1);
-                    if (el) {
-                        elements.push(el);
-                        totalEls += 1;
-                        totalGlobalColumns += 1;
-                    }
-                });
+                // Stage global columns first so a column-only request works even
+                // when room detection returns zero rooms.
+                if (scope.columns && globalColumns.length) {
+                    const stagedColumns = agentStageGlobalColumns(globalColumns, toWorldScale);
+                    stagedColumns.forEach(function (el) { elements.push(el); });
+                    totalEls += stagedColumns.length;
+                    totalColumns += stagedColumns.length;
+                    if (typeof renderAll === 'function') renderAll();
+                    else if (typeof renderCanvas2D === 'function') renderCanvas2D();
+                    if (typeof renderTree === 'function') renderTree();
+                    if (typeof renderQuantityTable === 'function') renderQuantityTable();
+                    if (typeof updateStatusBar === 'function') updateStatusBar();
+                    agentLog('Staged ' + stagedColumns.length + ' global column(s) for QS review.', 'ok');
+                }
 
                 for (let i = 0; i < rooms.length; i++) {
                     if (_agentAbort) {
@@ -4552,6 +4579,7 @@
                     });
                     if (scope.doors) totalDoors += (room.doors || []).length;
                     if (scope.windows) totalWindows += (room.windows || []).length;
+                    if (scope.columns) totalColumns += (room.columns || []).length;
 
                     if (typeof renderAll === 'function') renderAll();
                     else if (typeof renderCanvas2D === 'function') renderCanvas2D();
@@ -4570,6 +4598,7 @@
                     if (scope.walls && cf > 0) bits.push('walls ~' + totalWall.toFixed(1) + ' m');
                     if (scope.doors && totalDoors) bits.push(totalDoors + ' doors');
                     if (scope.windows && totalWindows) bits.push(totalWindows + ' windows');
+                    if (scope.columns && totalColumns) bits.push(totalColumns + ' columns');
                     tot.textContent = 'Totals: ' + bits.join(' · ');
                 }
                 agentLog('Done. Review elements in the tree; edit or delete as needed. Live Quantities updates automatically.', 'ok');
