@@ -12700,13 +12700,22 @@
                 .filter(function (el) { return el && !el.hidden; });
             if (!list.length) return;
 
-            // Single count marker: pan only (never explode zoom on a 1×1 point)
+            const { W, H } = getViewerSize();
+
+            // Single count marker: pan only at current zoom (never explode onto a 1×1 point).
+            // Must NOT call zoomToElement here — that delegates back to zoomToElements (recursion).
             if (list.length === 1 && typeof list[0].type === 'string' && list[0].type.indexOf('count_') === 0) {
-                zoomToElement(list[0]);
+                const el = list[0];
+                const cx = (el.x || 0) + (el.w || 1) / 2;
+                const cy = (el.y || 0) + (el.h || 1) / 2;
+                const s = (viewport && viewport.scale > 0) ? viewport.scale : 1;
+                viewport.offsetX = W / 2 - cx * s;
+                viewport.offsetY = H / 2 - cy * s;
+                updateZoomDisplays();
+                renderCanvas2D();
                 return;
             }
 
-            const { W, H } = getViewerSize();
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             let has = false;
 
