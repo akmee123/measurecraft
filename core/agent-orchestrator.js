@@ -54,6 +54,26 @@ function buildProposals(intel) {
       arr.forEach((b,i)=>{ const e=elementFromBox(type,b,room,i); if(e) elements.push(e); });
     }
   }
+  // Global columns are not required to belong to a detected room. They are
+  // structural candidates found by the whole-sheet column search.
+  (intel.globalColumns || []).forEach((c,i)=>{
+    const globalRoom={
+      id:null,
+      name:'Whole drawing',
+      confidence:c.confidence,
+      evidence:c.evidence||[],
+      uncertainty:c.uncertainty||[]
+    };
+    const e=elementFromBox('column',c,globalRoom,i);
+    if(e){
+      e.roomName=null;
+      e.roomId=null;
+      e.aiGlobal=true;
+      e.label=`AI column ${i+1}`;
+      e.intelligence.global=true;
+      elements.push(e);
+    }
+  });
   return elements;
 }
 
