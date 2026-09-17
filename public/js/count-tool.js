@@ -275,17 +275,8 @@
             } catch (_) {}
         }
 
-        function pushMainUndo() {
-            // Record full document + count snapshot so toolbar Ctrl+Z / Undo
-            // can restore counted markers (not only their backing elements).
-            try {
-                if (typeof window.saveState === 'function') window.saveState();
-            } catch (_) {}
-        }
-
         function undoLast() {
             if (!history.length) return;
-            pushMainUndo();
             var lastId = history.pop();
             var removed = markers.filter(function (m) { return m.id === lastId; });
             markers = markers.filter(function (m) { return m.id !== lastId; });
@@ -299,13 +290,11 @@
             if (!activeTypeId) {
                 if (!markers.length) return;
                 if (!window.confirm('Clear ALL counted objects (every type)?')) return;
-                pushMainUndo();
                 toRemove = markers.slice();
                 markers = [];
                 history = [];
             } else {
                 if (!window.confirm('Clear all "' + typeInfo(activeTypeId).label + '" counts?')) return;
-                pushMainUndo();
                 toRemove = markers.filter(function (m) { return m.type === activeTypeId; });
                 markers = markers.filter(function (m) { return m.type !== activeTypeId; });
                 history = history.filter(function (id) {
@@ -318,7 +307,6 @@
         }
 
         function removeMarker(id) {
-            pushMainUndo();
             var removed = markers.filter(function (m) { return m.id === id; });
             markers = markers.filter(function (m) { return m.id !== id; });
             history = history.filter(function (hid) { return hid !== id; });
@@ -406,6 +394,15 @@
         function syncOverlayMarkers() {
             if (typeof worldToScreen !== 'function') return;
             overlay.innerHTML = '';
+            // Count markers are 2D plan symbols only — never show them over the 3D view
+            // (worldToScreen is 2D-canvas based, so markers float in the wrong place in 3D).
+            try {
+                if (typeof currentView === 'string' && currentView === '3d') {
+                    overlay.style.display = 'none';
+                    return;
+                }
+            } catch (_) {}
+            overlay.style.display = '';
             markers.forEach(function (m) {
                 var info = typeInfo(m.type);
                 var pt = worldToScreen(m.wx, m.wy);
@@ -645,7 +642,9 @@
                     renderAllUi();
                 },
                 pruneOrphanMarkers: pruneOrphanMarkers,
-                syncMarkersFromElements: syncMarkersFromElements
+                syncMarkersFromElements: syncMarkersFromElements,
+                /** Force redraw of 2D plan markers (call after switching back from 3D). */
+                redrawOverlay: function () { try { syncOverlayMarkers(); } catch (_) {} }
             };
         } catch (_) {}
     }
