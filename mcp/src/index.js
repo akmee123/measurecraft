@@ -238,8 +238,34 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'], additionalProperties: false },
   },
   {
+    name: 'export_takeoff',
+    description:
+      'Export the live takeoff as structured JSON (elements + quantity summary + review status). ' +
+      'Optionally write to a local file path (e.g. live-takeoff.json). Call after QS accepts a batch so the agent can persist progress.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'Live Pro session id' },
+        path: {
+          type: 'string',
+          description: 'Optional filesystem path to write JSON (relative to MCP process cwd or absolute)',
+        },
+        includeRejected: {
+          type: 'boolean',
+          description: 'If true, include REJECTED elements (default false)',
+        },
+        acceptedOnly: {
+          type: 'boolean',
+          description: 'If true, only include QS-accepted / FINAL elements (default false — export all non-rejected)',
+        },
+      },
+      required: ['sessionId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'list_tools_help',
-    description: 'How to use MeasureCraft MCP with the live document bridge.',
+    description: 'Numbered agent workflow + tool map for MeasureCraft MCP (propose → accept → export loop).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];
@@ -253,7 +279,7 @@ async function enqueue(sessionId, type, payload) {
 
 export async function startServer() {
   const server = new Server(
-    { name: 'measurecraft-mcp', version: '0.4.0' },
+    { name: 'measurecraft-mcp', version: '0.5.0' },
     { capabilities: { tools: {} } }
   );
 
@@ -269,11 +295,29 @@ export async function startServer() {
           baseUrl: BASE,
           tokenConfigured: !!TOKEN,
           defaultSession: DEFAULT_SESSION || null,
+          systemPromptHint: [
+            'You are a QS takeoff agent for MeasureCraft. Never invent geometry, heights, or materials.',
+            'Always propose; never treat AI boxes as final quantities until QS accept.',
+            'Prefer agent_orchestrate_takeoff with stage=true over live_add_elements when starting from an image.',
+            'After the user accepts a batch, call export_takeoff to persist live-takeoff.json.',
+          ],
           workflow: [
-            '1. Start MeasureCraft (npm start) and open Pro Mode',
-            '2. list_live_sessions → copy sessionId (also shown as Live · xxxxxx in UI)',
-            '3. live_get_document { sessionId }',
-            '4. live_add_elements / live_accept_elements / etc. — Pro applies within ~1–2s',
+            '1. Start MeasureCraft (npm start) and open Professional Mode in the browser (creates a live session).',
+            '2. list_live_sessions → copy sessionId (UI shows Live · xxxxxx). Optionally set MC_LIVE_SESSION.',
+            '3. health — confirm app + agent + live are up.',
+            '4. live_get_document { sessionId } — inspect calibration, existing elements, pending AI.',
+            '5. If uncalibrated: ask the user to set scale in the UI, or live_set_calibration { sessionId, factor } only when they give an explicit metres-per-unit factor.',
+            '6. agent_orchestrate_takeoff { image_base64, sessionId, stage: true, goal } — stages AI proposals; does NOT accept them.',
+            '7. Tell the user how many proposals were staged and ask them to Accept / Reject in the Pro UI (or confirm ids for live_accept_elements).',
+            '8. Only after explicit user approval: live_accept_elements { sessionId, ids } (or live_reject_elements).',
+            '9. export_takeoff { sessionId, path: "live-takeoff.json" } — write the current takeoff snapshot after each accepted batch.',
+            '10. get_document_summary / create_agent_plan — decide next rooms or low-confidence items to inspect.',
+          ],
+          rules: [
+            'AI writes are proposals only (accepted:false, reviewStatus:AI_GENERATED).',
+            'Do not call live_accept_elements unless the human has approved those ids.',
+            'Prefer fewer accurate boxes over many guessed ones.',
+            'Use validate_document after large batch changes.',
           ],
         });
       }
@@ -390,6 +434,71 @@ export async function startServer() {
         const live = await mcFetch('/api/live/document/' + encodeURIComponent(args.sessionId));
         const doc = live.document || {};
         return textResult(await mcFetch('/api/agent/summary', { method:'POST', body:{ elements:doc.elements||[], calibrationFactor:doc.calibration && doc.calibration.factor } }));
+      }
+
+      if (name === 'export_takeoff') {
+        const sid = resolveSession(args);
+        if (!sid) throw new Error('sessionId required');
+        const live = await mcFetch('/api/live/document/' + encodeURIComponent(sid));
+        const doc = live.document || {};
+        const all = Array.isArray(doc.elements) ? doc.elements : [];
+        const includeRejected = args.includeRejected === true;
+        const acceptedOnly = args.acceptedOnly === true;
+        const isAiEl = (el) =>
+          !!(el && (el.source === 'AI' || el.source === 'AGENT' || el.ai === true ||
+            el.method === 'ai_vision' || el.method === 'ai_detect' || el.method === 'ai_agent' ||
+            el.reviewStatus === 'AI_GENERATED'));
+        const isAccepted = (el) =>
+          el.accepted === true || el.reviewStatus === 'QS_REVIEWED' || el.reviewStatus === 'FINAL';
+        const elements = all.filter((el) => {
+          if (!el) return false;
+          if (!includeRejected && el.reviewStatus === 'REJECTED') return false;
+          if (acceptedOnly) {
+            // Manual (non-AI) elements always export; AI only when QS-accepted.
+            if (!isAiEl(el)) return true;
+            return isAccepted(el);
+          }
+          return true;
+        });
+        const calFactor =
+          (doc.calibration && Number(doc.calibration.factor)) ||
+          Number(doc.calibrationFactor) ||
+          null;
+        const summary = await mcFetch('/api/agent/summary', {
+          method: 'POST',
+          body: { elements, calibrationFactor: calFactor },
+        }).catch((e) => ({ success: false, error: e.message }));
+        const payload = {
+          exportedAt: new Date().toISOString(),
+          sessionId: sid,
+          source: 'measurecraft-mcp',
+          projectInfo: doc.projectInfo || null,
+          calibration: doc.calibration || (calFactor != null ? { factor: calFactor } : null),
+          counts: {
+            totalInDocument: all.length,
+            exported: elements.length,
+            pendingAi: all.filter(
+              (e) =>
+                e &&
+                (e.source === 'AI' || e.ai === true) &&
+                e.accepted !== true &&
+                e.reviewStatus !== 'QS_REVIEWED' &&
+                e.reviewStatus !== 'FINAL' &&
+                e.reviewStatus !== 'REJECTED'
+            ).length,
+          },
+          summary,
+          elements,
+        };
+        let written = null;
+        if (args.path && typeof args.path === 'string' && args.path.trim()) {
+          const fs = await import('fs/promises');
+          const pathMod = await import('path');
+          const outPath = pathMod.default.resolve(args.path.trim());
+          await fs.writeFile(outPath, JSON.stringify(payload, null, 2), 'utf8');
+          written = outPath;
+        }
+        return textResult({ success: true, written, export: payload });
       }
 
       if (name === 'analyze_drawing') {
