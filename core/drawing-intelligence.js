@@ -19,7 +19,12 @@ function box(b) {
   if (!b || typeof b !== 'object') return null;
   const x=n(b.x), y=n(b.y), w=n(b.w), h=n(b.h);
   if (![x,y,w,h].every(Number.isFinite) || w <= 1 || h <= 1) return null;
-  return {x,y,w,h};
+  const out = {x,y,w,h};
+  // Preserve per-element confidence when the model supplies it (do not invent).
+  if (b.confidence != null && Number.isFinite(Number(b.confidence))) {
+    out.confidence = clamp01(b.confidence);
+  }
+  return out;
 }
 function center(b) { return {x:b.x+b.w/2,y:b.y+b.h/2}; }
 function intersects(a,b,pad=0) {
@@ -37,13 +42,19 @@ function dedupeBoxes(list, iouThreshold=0.8) {
   const out=[];
   for (const item of list || []) {
     const b=box(item); if (!b) continue;
-    const dup=out.some(o=>{
+    const dupIdx=out.findIndex(o=>{
       const ix=Math.max(0,Math.min(b.x+b.w,o.x+o.w)-Math.max(b.x,o.x));
       const iy=Math.max(0,Math.min(b.y+b.h,o.y+o.h)-Math.max(b.y,o.y));
       const inter=ix*iy, union=b.w*b.h+o.w*o.h-inter;
       return union>0 && inter/union>=iouThreshold;
     });
-    if (!dup) out.push(b);
+    if (dupIdx < 0) {
+      out.push(b);
+    } else if (b.confidence != null) {
+      // Keep the higher-confidence duplicate when both report confidence.
+      const prev = out[dupIdx];
+      if (prev.confidence == null || b.confidence > prev.confidence) out[dupIdx] = b;
+    }
   }
   return out;
 }
@@ -57,7 +68,9 @@ function buildGraph(rooms, globalColumns=[]) {
     for (const [type,arr] of groups) {
       (arr||[]).forEach((b,ii)=>{
         const bid=id(type, `${rid}:${ii}:${JSON.stringify(b)}`);
-        nodes.push({id:bid,type,geometry:b,confidence:clamp01(r.confidence),roomId:rid});
+        // Prefer per-element confidence; fall back to room only when the box has none.
+        const elConf = (b && b.confidence != null) ? clamp01(b.confidence) : clamp01(r.confidence);
+        nodes.push({id:bid,type,geometry:b,confidence:elConf,roomId:rid});
         edges.push({from:rid,to:bid,relation:'contains'});
       });
     }
