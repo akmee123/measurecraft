@@ -275,8 +275,17 @@
             } catch (_) {}
         }
 
+        function pushMainUndo() {
+            // Record full document + count snapshot so toolbar Ctrl+Z / Undo
+            // can restore counted markers (not only their backing elements).
+            try {
+                if (typeof window.saveState === 'function') window.saveState();
+            } catch (_) {}
+        }
+
         function undoLast() {
             if (!history.length) return;
+            pushMainUndo();
             var lastId = history.pop();
             var removed = markers.filter(function (m) { return m.id === lastId; });
             markers = markers.filter(function (m) { return m.id !== lastId; });
@@ -290,11 +299,13 @@
             if (!activeTypeId) {
                 if (!markers.length) return;
                 if (!window.confirm('Clear ALL counted objects (every type)?')) return;
+                pushMainUndo();
                 toRemove = markers.slice();
                 markers = [];
                 history = [];
             } else {
                 if (!window.confirm('Clear all "' + typeInfo(activeTypeId).label + '" counts?')) return;
+                pushMainUndo();
                 toRemove = markers.filter(function (m) { return m.type === activeTypeId; });
                 markers = markers.filter(function (m) { return m.type !== activeTypeId; });
                 history = history.filter(function (id) {
@@ -307,6 +318,7 @@
         }
 
         function removeMarker(id) {
+            pushMainUndo();
             var removed = markers.filter(function (m) { return m.id === id; });
             markers = markers.filter(function (m) { return m.id !== id; });
             history = history.filter(function (hid) { return hid !== id; });
