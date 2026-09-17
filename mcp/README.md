@@ -27,7 +27,11 @@ Ops are applied on the client within ~1–2 seconds (poll + SSE).
 | `live_toast` | Toast in Pro UI |
 | `document_summary` | Review counts (live or posted) |
 | `agent_takeoff` | Room-wise AI proposals from image |
-| `list_tools_help` | This workflow |
+| `agent_orchestrate_takeoff` | Full vision→proposal loop; `stage:true` enqueues without accepting |
+| `analyze_drawing` | Drawing intelligence graph (read-only) |
+| `create_agent_plan` | Next-action plan from live document |
+| `export_takeoff` | Export live takeoff JSON; optional write to `path` (e.g. `live-takeoff.json`) |
+| `list_tools_help` | Numbered propose→accept→export agent workflow |
 
 ## Claude / Cursor config
 
