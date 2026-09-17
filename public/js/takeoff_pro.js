@@ -1699,11 +1699,50 @@
         }
 
         // ----- UNDO / REDO -----
+        // Each stack entry is { elements, countState } so manual Count markers
+        // (and their history) travel with the document snapshot. Without this,
+        // Undo removed the backing element then pruneOrphanMarkers dropped the
+        // marker, but Redo restored only the element — the marker never came back.
         function deepCopy(arr) { return arr.map(el => ({ ...el })); }
+
+        function captureCountUndoState() {
+            try {
+                if (window.MCCountTool && typeof window.MCCountTool.getUndoState === 'function') {
+                    return window.MCCountTool.getUndoState();
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        function applyCountUndoState(state) {
+            try {
+                if (window.MCCountTool && typeof window.MCCountTool.restoreUndoState === 'function') {
+                    window.MCCountTool.restoreUndoState(state);
+                }
+            } catch (_) {}
+        }
+
+        function snapshotForUndo() {
+            return {
+                elements: deepCopy(elements),
+                countState: captureCountUndoState()
+            };
+        }
+
+        function restoreFromSnapshot(snap) {
+            if (!snap) return;
+            // Legacy entries were plain element arrays (pre-count integration)
+            if (Array.isArray(snap)) {
+                elements = snap;
+                return;
+            }
+            elements = Array.isArray(snap.elements) ? snap.elements : [];
+            if (snap.countState) applyCountUndoState(snap.countState);
+        }
 
         function saveState() {
             if (isConfirmed) return;
-            undoStack.push(deepCopy(elements));
+            undoStack.push(snapshotForUndo());
             if (undoStack.length > MAX_UNDO) undoStack.shift();
             redoStack = [];
             if (elements && elements.length > 0) markWorkSession();
@@ -1713,16 +1752,16 @@
 
         function undo() {
             if (isConfirmed || undoStack.length === 0) return;
-            redoStack.push(deepCopy(elements));
-            elements = undoStack.pop();
+            redoStack.push(snapshotForUndo());
+            restoreFromSnapshot(undoStack.pop());
             selectedIds = [];
             renderAll();
         }
 
         function redo() {
             if (isConfirmed || redoStack.length === 0) return;
-            undoStack.push(deepCopy(elements));
-            elements = redoStack.pop();
+            undoStack.push(snapshotForUndo());
+            restoreFromSnapshot(redoStack.pop());
             selectedIds = [];
             renderAll();
         }
@@ -14261,6 +14300,7 @@
             window.renderCanvas2D = renderCanvas2D;
             window.hideLoadingOverlay = hideLoadingOverlay;
             window.init = init;
+            window.saveState = saveState;
         } catch (_) {}
 
         // Boot: DOMContentLoaded may already have fired by the time this
