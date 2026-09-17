@@ -88,12 +88,20 @@
 
     // ---------- DOM ----------
     const $ = (id) => document.getElementById(id);
+    /** Headers for Gemini-backed APIs. Prefer session.apiToken (JWT), fall back to mc-api-token. */
     function mcApiHeaders(json) {
       const h = {};
       if (json) h['Content-Type'] = 'application/json';
       try {
-        const tok = localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token');
-        if (tok) h['X-MC-Token'] = tok;
+        const sessionRaw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+        const session = sessionRaw ? JSON.parse(sessionRaw) : null;
+        const tok = (session && session.apiToken)
+          || localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token')
+          || localStorage.getItem('mc_token') || localStorage.getItem('mcToken');
+        if (tok) {
+          h['Authorization'] = 'Bearer ' + tok;
+          h['X-MC-Token'] = tok;
+        }
       } catch (_) {}
       return h;
     }
@@ -3007,13 +3015,17 @@
         body.scrollTop=body.scrollHeight;
         const slot=document.getElementById(thinkId);
         let answer=null;
+        let errHint='';
         try{
           const headers=(typeof mcApiHeaders==='function')?mcApiHeaders(true):{'Content-Type':'application/json'};
           const resp=await fetch('/api/assistant-chat',{method:'POST',headers,body:JSON.stringify({message:q,history:mcAiHistory})});
           const data=await resp.json().catch(()=>({}));
           if(resp.ok&&data&&data.success&&data.answer){answer=data.answer}
-        }catch(_){}
-        const finalText=answer||offlineReply(q);
+          else if(data&&data.code==='NO_KEY'){errHint=' (Gemini API key not set on server — add GEMINI_API_KEY in Render/.env)'}
+          else if(resp.status===401){errHint=' (sign in again to refresh your session token)'}
+          else if(data&&data.error){errHint=' ('+String(data.error).slice(0,120)+')'}
+        }catch(_){errHint=' (network error)'}
+        const finalText=answer||(offlineReply(q)+(errHint?'\n\n[Live AI unavailable'+errHint+']':''));
         if(slot)slot.textContent=finalText;
         if(answer){mcAiHistory.push({role:'user',text:q},{role:'assistant',text:answer});if(mcAiHistory.length>12)mcAiHistory=mcAiHistory.slice(-12)}
         body.scrollTop=body.scrollHeight;
