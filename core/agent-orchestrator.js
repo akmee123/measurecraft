@@ -31,16 +31,20 @@ function elementFromBox(type, b, room, i) {
   const id='ai-'+type+'-'+hash([room.id||room.name,i,box]);
   const line = type==='wall' || type==='beam';
   const length = line ? Math.max(box.w,box.h) : null;
+  // Prefer per-element confidence from the vision box; fall back to room only when absent.
+  const elConf = (b && b.confidence != null && Number.isFinite(Number(b.confidence)))
+    ? clamp01(b.confidence)
+    : clamp01(room.confidence);
   return {
     id,type,x:box.x,y:box.y,w:box.w,h:box.h,
     label:`AI ${type} · ${room.name}`,
     ai:true,source:'AI',method:'ai_vision',accepted:false,reviewStatus:'AI_GENERATED',
-    confidence:clamp01(room.confidence),locked:false,hidden:false,
+    confidence:elConf,locked:false,hidden:false,
     isLine:line,length,
     quantityBasis: line ? 'length' : (type==='floor' || type==='slab' ? 'area' : 'count'),
     roomName:room.name, roomId:room.id || null,
-    intelligence:{...sourceMeta(room,type,i)},
-    provenance:{method:'ai_vision',actor:'ai_agent',createdAt:new Date().toISOString(),source:'drawing',geometry:{x:box.x,y:box.y,w:box.w,h:box.h},confidence:clamp01(room.confidence),editCount:0}
+    intelligence:{...sourceMeta(room,type,i), confidence:elConf},
+    provenance:{method:'ai_vision',actor:'ai_agent',createdAt:new Date().toISOString(),source:'drawing',geometry:{x:box.x,y:box.y,w:box.w,h:box.h},confidence:elConf,editCount:0}
   };
 }
 
