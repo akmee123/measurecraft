@@ -12,7 +12,7 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const auth = require('./auth');
 const liveDoc = require('./live-document');
 const takeoffCore = require('./core/takeoff-engine');
@@ -157,6 +157,108 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+/** Axis-aligned box with optional per-element confidence (Gemini responseSchema). */
+const BOX_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    x: { type: SchemaType.NUMBER },
+    y: { type: SchemaType.NUMBER },
+    w: { type: SchemaType.NUMBER },
+    h: { type: SchemaType.NUMBER },
+    confidence: { type: SchemaType.NUMBER },
+  },
+  required: ['x', 'y', 'w', 'h'],
+};
+
+const DETECT_ELEMENTS_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    elements: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          type: { type: SchemaType.STRING },
+          label: { type: SchemaType.STRING },
+          x: { type: SchemaType.NUMBER },
+          y: { type: SchemaType.NUMBER },
+          w: { type: SchemaType.NUMBER },
+          h: { type: SchemaType.NUMBER },
+          height: { type: SchemaType.NUMBER, nullable: true },
+          confidence: { type: SchemaType.NUMBER },
+        },
+        required: ['type', 'x', 'y', 'w', 'h', 'confidence'],
+      },
+    },
+  },
+  required: ['elements'],
+};
+
+const ROOM_TAKEOFF_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    rooms: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          name: { type: SchemaType.STRING },
+          floor: BOX_SCHEMA,
+          walls: { type: SchemaType.ARRAY, items: BOX_SCHEMA },
+          doors: { type: SchemaType.ARRAY, items: BOX_SCHEMA },
+          windows: { type: SchemaType.ARRAY, items: BOX_SCHEMA },
+          columns: { type: SchemaType.ARRAY, items: BOX_SCHEMA },
+          confidence: { type: SchemaType.NUMBER },
+          evidence: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+          uncertainty: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        },
+        required: ['name', 'confidence'],
+      },
+    },
+    global_columns: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          x: { type: SchemaType.NUMBER },
+          y: { type: SchemaType.NUMBER },
+          w: { type: SchemaType.NUMBER },
+          h: { type: SchemaType.NUMBER },
+          confidence: { type: SchemaType.NUMBER },
+          evidence: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+          uncertainty: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        },
+        required: ['x', 'y', 'w', 'h'],
+      },
+    },
+    summary: { type: SchemaType.STRING },
+  },
+  required: ['rooms'],
+};
+
+const COLUMN_DETECTION_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    columns: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          x: { type: SchemaType.NUMBER },
+          y: { type: SchemaType.NUMBER },
+          w: { type: SchemaType.NUMBER },
+          h: { type: SchemaType.NUMBER },
+          confidence: { type: SchemaType.NUMBER },
+          evidence: { type: SchemaType.STRING },
+        },
+        required: ['x', 'y', 'w', 'h', 'confidence'],
+      },
+    },
+    summary: { type: SchemaType.STRING },
+  },
+  required: ['columns'],
+};
+
 function getModel(opts) {
   if (!GEMINI_API_KEY) {
     const err = new Error('GEMINI_API_KEY is not set. Add it in Render Environment or .env');
@@ -171,14 +273,50 @@ function getModel(opts) {
   const maxOut = (opts && Number(opts.maxOutputTokens) > 0)
     ? Number(opts.maxOutputTokens)
     : (json ? 8192 : 2048);
+  const generationConfig = {
+    temperature: json ? 0.2 : 0.4,
+    maxOutputTokens: maxOut,
+  };
+  if (json) {
+    generationConfig.responseMimeType = 'application/json';
+    // Structured output: when a schema is provided, Gemini constrains keys/types
+    // and eliminates an entire class of silent parse failures / hallucinated fields.
+    if (opts && opts.responseSchema) {
+      generationConfig.responseSchema = opts.responseSchema;
+    }
+  }
   return genAI.getGenerativeModel({
     model: GEMINI_MODEL,
-    generationConfig: {
-      temperature: json ? 0.2 : 0.4,
-      maxOutputTokens: maxOut,
-      ...(json ? { responseMimeType: 'application/json' } : {}),
-    },
+    generationConfig,
   });
+}
+
+/**
+ * Call Gemini with optional responseSchema, parse with parseJsonLoose, and on
+ * failure run one "repair" pass that asks the model to return valid JSON only.
+ * Keeps parseJsonLoose as a safety net for truncation edge cases.
+ */
+async function generateJsonWithRepair(model, content, options = {}) {
+  const result = await model.generateContent(content);
+  const text = (result.response.text() || '').trim();
+  try {
+    return { parsed: parseJsonLoose(text), text, repaired: false };
+  } catch (parseErr) {
+    if (options.skipRepair) throw parseErr;
+    console.warn('generateJsonWithRepair: primary parse failed, running repair pass:', parseErr.message);
+    const repairContent = [
+      {
+        text:
+          'Your previous response was not valid JSON (or was truncated). ' +
+          'Return ONLY a single valid JSON object that matches the required schema. ' +
+          'No markdown fences, no commentary. If you must drop incomplete trailing items to keep the JSON valid, do so.',
+      },
+      { text: 'Broken output to repair (use as context only):\n' + String(text).slice(0, 6000) },
+    ];
+    const repairResult = await model.generateContent(repairContent);
+    const repairText = (repairResult.response.text() || '').trim();
+    return { parsed: parseJsonLoose(repairText), text: repairText, repaired: true };
+  }
 }
 
 function parseJsonLoose(text) {
@@ -743,7 +881,7 @@ function applyOcrLabelCorrections(elements, ocrLabels) {
 }
 
 async function runGeminiDetect(prompt, mime, imageBase64, legendImages) {
-  const model = getModel();
+  const model = getModel({ json: true, responseSchema: DETECT_ELEMENTS_SCHEMA });
   const content = [
     { text: prompt },
     { inlineData: { mimeType: mime, data: imageBase64 } },
@@ -756,9 +894,7 @@ async function runGeminiDetect(prompt, mime, imageBase64, legendImages) {
       content.push({ inlineData: { mimeType: item.mimeType, data: item.data } })
     );
   }
-  const result = await model.generateContent(content);
-  const text = result.response.text();
-  const parsed = parseJsonLoose(text);
+  const { parsed } = await generateJsonWithRepair(model, content);
   return Array.isArray(parsed.elements) ? parsed.elements : (Array.isArray(parsed) ? parsed : []);
 }
 
@@ -1149,7 +1285,7 @@ const AGENT_TAKEOFF_PROMPT = [
   'You are a construction quantity takeoff agent reading a floor plan image.',
   'Detect rooms and measure-worthy elements. Return ONLY valid JSON (no markdown).',
   'Schema:',
-  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n},"walls":[{"x":n,"y":n,"w":n,"h":n}],"doors":[{"x":n,"y":n,"w":n,"h":n}],"windows":[{"x":n,"y":n,"w":n,"h":n}],"columns":[{"x":n,"y":n,"w":n,"h":n}],"confidence":0-1}],"summary":"one sentence"}',
+  '{"rooms":[{"name":"string","floor":{"x":n,"y":n,"w":n,"h":n,"confidence":0-1},"walls":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1}],"doors":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1}],"windows":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1}],"columns":[{"x":n,"y":n,"w":n,"h":n,"confidence":0-1}],"confidence":0-1,"evidence":["string"],"uncertainty":["string"]}],"summary":"one sentence"}',
   'Rules:',
   '- Coordinates are pixels from the TOP-LEFT of the image (x,y = top-left of box; w,h = size).',
   '- floor = INTERIOR usable floor plate of the room (slab area), not including wall thickness.',
@@ -1158,6 +1294,7 @@ const AGENT_TAKEOFF_PROMPT = [
   '- Prefer named rooms from labels on the plan (Bedroom, Kitchen, Toilet, Corridor, etc.).',
   '- Skip title blocks, schedules, legends, and notes outside the plan.',
   '- Include every clearly enclosed room you can see. Empty open areas without walls are not rooms.',
+  '- room.confidence is overall room clarity (0-1). EVERY wall/door/window/column/floor box MUST also carry its own confidence (0-1) based on how clearly that specific element is visible and classified — do not copy the room score onto every box.',
   '- If the plan is unclear, return fewer rooms with lower confidence rather than inventing geometry.',
 ].join('\n');
 
@@ -1187,24 +1324,22 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
       });
     }
 
-    const model = getModel({ json: true });
+    const model = getModel({ json: true, responseSchema: ROOM_TAKEOFF_SCHEMA });
     const userGoal = goalText
       ? `Estimator goal: ${goalText}`
       : 'Estimator goal: measure every room — floor area, wall lengths, door and window counts.';
     const sizeNote = (w > 0 && h > 0) ? `Image size: ${w}×${h} pixels.` : '';
 
-    const result = await model.generateContent([
-      { text: AGENT_TAKEOFF_PROMPT },
-      { text: `${userGoal}\n${sizeNote}` },
-      { inlineData: { mimeType: mime === 'image/jpg' ? 'image/jpeg' : mime, data: image_base64 } },
-    ]);
-
-    let text = (result.response.text() || '').trim();
     let parsed;
+    let text = '';
     try {
-      // Shared tolerant parser: strips fences, repairs trailing commas, and
-      // recovers complete room objects when the model truncates mid-JSON.
-      parsed = parseJsonLoose(text);
+      const out = await generateJsonWithRepair(model, [
+        { text: AGENT_TAKEOFF_PROMPT },
+        { text: `${userGoal}\n${sizeNote}` },
+        { inlineData: { mimeType: mime === 'image/jpg' ? 'image/jpeg' : mime, data: image_base64 } },
+      ]);
+      parsed = out.parsed;
+      text = out.text;
     } catch (parseErr) {
       return res.status(502).json({
         success: false,
@@ -1217,11 +1352,17 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
     const roomsIn = Array.isArray(parsed.rooms) ? parsed.rooms : [];
     const rooms = roomsIn.slice(0, 80).map((r, i) => {
       const name = (r && typeof r.name === 'string' && r.name.trim()) ? r.name.trim().slice(0, 80) : `Room ${i + 1}`;
+      const clampConf = (v, fallback = null) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(0, Math.min(1, n > 1 ? n / 100 : n));
+      };
       const box = (b) => {
         if (!b || typeof b !== 'object') return null;
         const x = Number(b.x), y = Number(b.y), bw = Number(b.w), bh = Number(b.h);
         if (![x, y, bw, bh].every(Number.isFinite) || bw < 2 || bh < 2) return null;
-        return { x, y, w: bw, h: bh };
+        const conf = clampConf(b.confidence);
+        return conf != null ? { x, y, w: bw, h: bh, confidence: conf } : { x, y, w: bw, h: bh };
       };
       const list = (arr) => (Array.isArray(arr) ? arr.map(box).filter(Boolean).slice(0, 40) : []);
       return {
@@ -1231,7 +1372,7 @@ app.post('/api/agent-takeoff', rateLimitAi, requireApiToken, async (req, res) =>
         doors: list(r.doors),
         windows: list(r.windows),
         columns: list(r.columns),
-        confidence: Number.isFinite(Number(r.confidence)) ? Math.max(0, Math.min(1, Number(r.confidence))) : null,
+        confidence: clampConf(r.confidence),
       };
     }).filter((r) => r.floor || (r.walls && r.walls.length) || (r.doors && r.doors.length));
 
@@ -1284,11 +1425,12 @@ app.post('/api/agent/analyze', rateLimitAi, requireApiToken, async (req, res) =>
     }
 
     const w=Number(pixel_w)||0, h=Number(pixel_h)||0;
-    const model=getModel({json:true});
+    const model=getModel({json:true, responseSchema: ROOM_TAKEOFF_SCHEMA});
     const prompt = [
       AGENT_TAKEOFF_PROMPT,
       'DRAWING INTELLIGENCE MODE: return room geometry plus explicit evidence and uncertainty for every room.',
       'For each room include: name, floor box, walls, doors, windows, columns, confidence, evidence[], uncertainty[].',
+      'Every wall/door/window/column/floor box must carry its own confidence (0-1); do not copy the room score onto every box.',
       'Evidence must describe only visible drawing cues (labels, boundary lines, symbols).',
       'Uncertainty must identify ambiguity such as occlusion, unclear wall boundary, missing scale, or uncertain room label.',
       'Do not invent dimensions, heights, materials, or hidden geometry.',
@@ -1298,8 +1440,7 @@ app.post('/api/agent/analyze', rateLimitAi, requireApiToken, async (req, res) =>
     ].filter(Boolean).join('\n');
     const parts = [{text:prompt},{inlineData:{mimeType:mime==='image/jpg'?'image/jpeg':mime,data:image_base64}}];
     if (refMime) parts.push({inlineData:{mimeType:refMime==='image/jpg'?'image/jpeg':refMime,data:reference_image_base64}});
-    const result=await model.generateContent(parts);
-    const parsed=parseJsonLoose(result.response.text());
+    const { parsed } = await generateJsonWithRepair(model, parts);
     const intelligence=drawingIntelligence.analyze(parsed,{pixelW:w,pixelH:h});
     res.json({success:true,model:GEMINI_MODEL,goal:String(goal||''),...intelligence});
   } catch(err) {
@@ -1345,15 +1486,14 @@ app.post('/api/agent/detect-columns', rateLimitAi, requireApiToken, async (req, 
       if (!new Set(['image/jpeg','image/jpg','image/png','image/webp']).has(refMime)) return res.status(400).json({success:false,error:'Unsupported reference_mime_type'});
       if (reference_image_base64.length > 12 * 1024 * 1024) return res.status(400).json({success:false,error:'reference_image_base64 is too large'});
     }
-    const model=getModel({json:true});
+    const model=getModel({json:true, responseSchema: COLUMN_DETECTION_SCHEMA});
     const parts=[
       {text:COLUMN_DETECTION_PROMPT},
       {text:w&&h ? `Image size: ${w}×${h} pixels.` : ''},
       {inlineData:{mimeType:mime==='image/jpg'?'image/jpeg':mime,data:image_base64}},
     ];
     if (refMime) parts.push({inlineData:{mimeType:refMime==='image/jpg'?'image/jpeg':refMime,data:reference_image_base64}});
-    const result=await model.generateContent(parts);
-    const parsed=parseJsonLoose(result.response.text());
+    const { parsed } = await generateJsonWithRepair(model, parts);
     const cols=Array.isArray(parsed?.columns)?parsed.columns:[];
     const seen=[];
     const iou=(a,b)=>{
@@ -1395,15 +1535,16 @@ app.post('/api/agent/orchestrate', rateLimitAi, requireApiToken, async (req, res
       if (!new Set(['image/jpeg','image/jpg','image/png','image/webp','image/gif']).has(mime)) return res.status(400).json({success:false,error:'Unsupported mime_type'});
       if (image_base64.length > 30*1024*1024) return res.status(400).json({success:false,error:'image_base64 is too large'});
       if (!GEMINI_API_KEY) return res.status(503).json({success:false,error:'GEMINI_API_KEY is not set on the server.',code:'NO_API_KEY'});
-      const model=getModel({json:true});
+      const model=getModel({json:true, responseSchema: ROOM_TAKEOFF_SCHEMA});
       const prompt=[
         AGENT_TAKEOFF_PROMPT,
         'ORCHESTRATION MODE: produce evidence-rich proposals for downstream deterministic validation.',
         'Add evidence[] and uncertainty[] to each room. Keep coordinates in image pixels. Do not invent hidden geometry, dimensions, materials or heights.',
+        'Every wall/door/window/column/floor box must carry its own confidence (0-1); do not copy the room score onto every box.',
         goal ? `Estimator goal: ${String(goal).slice(0,500)}` : 'Estimator goal: produce a reviewable architectural takeoff proposal.'
       ].join('\n');
-      const result=await model.generateContent([{text:prompt},{inlineData:{mimeType:mime==='image/jpg'?'image/jpeg':mime,data:image_base64}}]);
-      parsed=parseJsonLoose(result.response.text());
+      const outGen = await generateJsonWithRepair(model, [{text:prompt},{inlineData:{mimeType:mime==='image/jpg'?'image/jpeg':mime,data:image_base64}}]);
+      parsed = outGen.parsed;
     }
     const out=agentOrchestrator.orchestrate(parsed,{pixelW:Number(pixel_w)||0,pixelH:Number(pixel_h)||0,calibrated:!!(req.body.calibrated)});
     let staged=null;
