@@ -147,9 +147,9 @@
                 });
             }
 
-            // Demo / admin password login
+            // Demo / admin password login — prefer server /api/login so we get a signed apiToken for AI routes
             if (form) {
-                form.addEventListener('submit', function (e) {
+                form.addEventListener('submit', async function (e) {
                     e.preventDefault();
                     clearError();
                     const email = document.getElementById('email').value.trim().toLowerCase();
@@ -157,16 +157,34 @@
                     const remember = document.getElementById('remember').checked;
                     btnLogin.disabled = true;
                     btnLogin.classList.add('loading');
-                    setTimeout(function () {
-                        if (email === DEMO_EMAIL && password === DEMO_PASS) {
-                            saveSession({ email: email, name: 'demo', provider: 'demo', loggedInAt: Date.now() }, remember);
+                    try {
+                        const resp = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: email, password: password }),
+                        });
+                        const data = await resp.json().catch(function () { return {}; });
+                        if (resp.ok && data && data.success && data.token) {
+                            saveSession({
+                                email: (data.user && data.user.email) || email,
+                                name: (data.user && data.user.name) || email.split('@')[0] || 'User',
+                                provider: 'password',
+                                apiToken: data.token,
+                                loggedInAt: Date.now(),
+                            }, remember);
                             goToModes();
-                        } else {
-                            showError('Invalid email or password. Use Continue with email above, or demo@measurecraft.com / demo1234.');
-                            btnLogin.disabled = false;
-                            btnLogin.classList.remove('loading');
+                            return;
                         }
-                    }, 500);
+                    } catch (_) { /* fall through to offline demo */ }
+                    // Offline / demo fallback (no server JWT)
+                    if (email === DEMO_EMAIL && password === DEMO_PASS) {
+                        saveSession({ email: email, name: 'demo', provider: 'demo', loggedInAt: Date.now() }, remember);
+                        goToModes();
+                        return;
+                    }
+                    showError('Invalid email or password. Use Continue with email above, or demo@measurecraft.com / demo1234.');
+                    btnLogin.disabled = false;
+                    btnLogin.classList.remove('loading');
                 });
             }
 
@@ -298,8 +316,15 @@
             function mcAiHeaders() {
                 const h = { 'Content-Type': 'application/json' };
                 try {
-                    const tok = localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token');
-                    if (tok) h['X-MC-Token'] = tok;
+                    const sessionRaw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                    const session = sessionRaw ? JSON.parse(sessionRaw) : null;
+                    const tok = (session && session.apiToken)
+                        || localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token')
+                        || localStorage.getItem('mc_token') || localStorage.getItem('mcToken');
+                    if (tok) {
+                        h['Authorization'] = 'Bearer ' + tok;
+                        h['X-MC-Token'] = tok;
+                    }
                 } catch (_) {}
                 return h;
             }
@@ -319,6 +344,7 @@
                 body.scrollTop = body.scrollHeight;
                 const slot = document.getElementById(thinkId);
                 let answer = null;
+                let errHint = '';
                 try {
                     const resp = await fetch('/api/assistant-chat', {
                         method: 'POST',
@@ -327,8 +353,11 @@
                     });
                     const data = await resp.json().catch(() => ({}));
                     if (resp.ok && data && data.success && data.answer) answer = data.answer;
-                } catch (_) {}
-                const finalText = answer || offlineReply(q);
+                    else if (data && data.code === 'NO_KEY') errHint = ' (Gemini API key not set on server — add GEMINI_API_KEY in Render/.env)';
+                    else if (resp.status === 401) errHint = ' (sign in again to refresh your session token)';
+                    else if (data && data.error) errHint = ' (' + String(data.error).slice(0, 120) + ')';
+                } catch (_) { errHint = ' (network error)'; }
+                const finalText = answer || (offlineReply(q) + (errHint ? '\n\n[Live AI unavailable' + errHint + ']' : ''));
                 if (slot) slot.textContent = finalText;
                 if (answer) {
                     mcAiHistory.push({ role: 'user', text: q }, { role: 'assistant', text: answer });
