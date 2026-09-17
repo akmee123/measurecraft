@@ -1699,50 +1699,11 @@
         }
 
         // ----- UNDO / REDO -----
-        // Each stack entry is { elements, countState } so manual Count markers
-        // (and their history) travel with the document snapshot. Without this,
-        // Undo removed the backing element then pruneOrphanMarkers dropped the
-        // marker, but Redo restored only the element — the marker never came back.
         function deepCopy(arr) { return arr.map(el => ({ ...el })); }
-
-        function captureCountUndoState() {
-            try {
-                if (window.MCCountTool && typeof window.MCCountTool.getUndoState === 'function') {
-                    return window.MCCountTool.getUndoState();
-                }
-            } catch (_) {}
-            return null;
-        }
-
-        function applyCountUndoState(state) {
-            try {
-                if (window.MCCountTool && typeof window.MCCountTool.restoreUndoState === 'function') {
-                    window.MCCountTool.restoreUndoState(state);
-                }
-            } catch (_) {}
-        }
-
-        function snapshotForUndo() {
-            return {
-                elements: deepCopy(elements),
-                countState: captureCountUndoState()
-            };
-        }
-
-        function restoreFromSnapshot(snap) {
-            if (!snap) return;
-            // Legacy entries were plain element arrays (pre-count integration)
-            if (Array.isArray(snap)) {
-                elements = snap;
-                return;
-            }
-            elements = Array.isArray(snap.elements) ? snap.elements : [];
-            if (snap.countState) applyCountUndoState(snap.countState);
-        }
 
         function saveState() {
             if (isConfirmed) return;
-            undoStack.push(snapshotForUndo());
+            undoStack.push(deepCopy(elements));
             if (undoStack.length > MAX_UNDO) undoStack.shift();
             redoStack = [];
             if (elements && elements.length > 0) markWorkSession();
@@ -1752,16 +1713,16 @@
 
         function undo() {
             if (isConfirmed || undoStack.length === 0) return;
-            redoStack.push(snapshotForUndo());
-            restoreFromSnapshot(undoStack.pop());
+            redoStack.push(deepCopy(elements));
+            elements = undoStack.pop();
             selectedIds = [];
             renderAll();
         }
 
         function redo() {
             if (isConfirmed || redoStack.length === 0) return;
-            undoStack.push(snapshotForUndo());
-            restoreFromSnapshot(redoStack.pop());
+            undoStack.push(deepCopy(elements));
+            elements = redoStack.pop();
             selectedIds = [];
             renderAll();
         }
@@ -3687,6 +3648,14 @@
             if (importBtn) {
                 importBtn.disabled = false;
                 importBtn.setAttribute('aria-label', locked ? 'Import a PDF or drawing to begin' : 'Import drawing');
+            }
+            // Cancel / Done must stay usable once the UI is unlocked (and Cancel
+            // should still work to return to Select even mid-session).
+            if (!locked) {
+                ['btnCancelDraw', 'btnComplete'].forEach(function (id) {
+                    const el = document.getElementById(id);
+                    if (el) el.disabled = false;
+                });
             }
         }
 
@@ -5941,7 +5910,10 @@
             if (!threeInitialized) return;
             threeObjects.forEach(obj => scene.remove(obj));
             threeObjects = [];
-            const visibleEls = elementsOnDrawingVisible ? elements.filter(el => !el.hidden) : [];
+            // Count markers (type count_*) are 2D tally symbols — not 3D geometry
+            const visibleEls = elementsOnDrawingVisible
+                ? elements.filter(el => el && !el.hidden && !(typeof el.type === 'string' && el.type.indexOf('count_') === 0))
+                : [];
             const s = calibrationFactor || 1;
             let minX = Infinity,
                 maxX = -Infinity,
@@ -6336,6 +6308,23 @@
             const threeContainer = document.getElementById('threeContainer');
             const tabs = document.querySelectorAll('.viewer-tabs button');
             tabs.forEach(t => t.classList.toggle('active', t.dataset.view === view));
+            // Hide 2D-only count markers when switching to 3D
+            try {
+                const countOverlay = document.getElementById('mcCountOverlay');
+                if (countOverlay) {
+                    if (view === '3d') {
+                        countOverlay.style.display = 'none';
+                        countOverlay.innerHTML = '';
+                    } else {
+                        countOverlay.style.display = '';
+                        if (window.MCCountTool && typeof window.MCCountTool.redrawOverlay === 'function') {
+                            window.MCCountTool.redrawOverlay();
+                        } else if (window.MCCountTool && typeof window.MCCountTool.syncMarkersFromElements === 'function') {
+                            window.MCCountTool.syncMarkersFromElements();
+                        }
+                    }
+                }
+            } catch (_) {}
             if (view === '2d') {
                 canvas2d.classList.remove('hidden');
                 threeContainer.classList.remove('active');
@@ -7148,20 +7137,23 @@
             if (delBtn) delBtn.addEventListener('click', () => deleteSelected());
         }
 
-        /** Headers for Gemini-backed APIs. Prefer session.apiToken (JWT from email-join / login), fall back to mc-api-token. */
+        /** Headers for Gemini-backed APIs. Optional token from localStorage.mc-api-token or env demo. */
         function mcApiHeaders(json) {
             const h = {};
             if (json) h['Content-Type'] = 'application/json';
             try {
-                const sessionRaw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
-                const session = sessionRaw ? JSON.parse(sessionRaw) : null;
-                const tok = (session && session.apiToken)
-                    || localStorage.getItem('mc-api-token') || sessionStorage.getItem('mc-api-token')
-                    || localStorage.getItem('mc_token') || localStorage.getItem('mcToken');
-                if (tok) {
-                    h['Authorization'] = 'Bearer ' + tok;
-                    h['X-MC-Token'] = tok;
-                }
+                const raw = sessionStorage.getItem('mc-session') || localStorage.getItem('mc-session');
+                const session = raw ? JSON.parse(raw) : null;
+                const tok = (session && (session.apiToken || session.token))
+                    || localStorage.getItem('mc_token')
+                    || localStorage.getItem('mcToken')
+                    || '';
+                if (tok) h['Authorization'] = 'Bearer ' + tok;
+                const mcTok = localStorage.getItem('mc-api-token')
+                    || localStorage.getItem('mc_api_token')
+                    || sessionStorage.getItem('mc-api-token')
+                    || '';
+                if (mcTok) h['X-MC-Token'] = mcTok;
             } catch (_) {}
             return h;
         }
@@ -10574,12 +10566,12 @@
             opts = opts || {};
             try { cancelDrawing(); } catch (_) {}
             // Drop any active drawing tool (wall, cutout, measure, calibrate, …)
+            // Always return to Select so the UI and click handlers stay consistent.
             const wasTool = currentTool;
-            if (wasTool && wasTool !== 'select' && wasTool !== 'move') {
-                currentTool = null;
-            }
+            currentTool = 'select';
             document.querySelectorAll('.tool-btn').forEach(function (b) {
-                b.classList.remove('tool-active');
+                const t = b.getAttribute('data-tool');
+                b.classList.toggle('tool-active', t === 'select');
             });
             try {
                 const sm = document.getElementById('statusMode');
@@ -10590,6 +10582,15 @@
             if (opts.clearSelection !== false) {
                 selectedIds = [];
             }
+            // Close manual count panel if open
+            try {
+                if (window.MCCountTool && typeof window.MCCountTool.close === 'function') {
+                    window.MCCountTool.close();
+                } else {
+                    const cp = document.getElementById('mcCountPanel');
+                    if (cp) cp.style.display = 'none';
+                }
+            } catch (_) {}
             try { renderAll(); } catch (_) { try { renderCanvas2D(); } catch (_) {} }
             return wasTool || null;
         }
@@ -12268,35 +12269,42 @@
                 }
             });
             const btnCancelDraw = document.getElementById('btnCancelDraw');
-            if (btnCancelDraw) btnCancelDraw.addEventListener('click', () => {
-                // Red X = same as Esc: always stop continuous measure/draw tools.
-                // Previously it only cancelled mid-polyline points and left the
-                // tool armed, so Cutout/Wall/Measure kept going.
-                const isDrawTool = currentTool &&
-                    currentTool !== 'select' &&
-                    currentTool !== 'move';
-                const drawingActive =
-                    (polygonPoints && polygonPoints.length > 0) ||
-                    (deductionLinePoints && deductionLinePoints.length > 0) ||
-                    (measurePoints && measurePoints.length > 0) ||
-                    (calibratePoints && calibratePoints.length > 0) ||
-                    !!drawPreview ||
-                    !!continuousTempPreview ||
-                    (continuousDrawPoints && continuousDrawPoints.length > 0);
-                if (drawingActive || isDrawTool) {
-                    exitDrawingMode({ clearSelection: false });
-                    try { if (typeof toast === 'function') toast('Tool cancelled — back to Select.', 'info'); } catch (_) {}
-                    return;
-                }
-                // No tool active: only clear selection if any
-                if (selectedIds && selectedIds.length) {
-                    selectedIds = [];
-                    renderAll();
-                    try { if (typeof toast === 'function') toast('Selection cleared.', 'info'); } catch (_) {}
-                    return;
-                }
-                try { if (typeof toast === 'function') toast('Nothing to cancel.', 'info'); } catch (_) {}
-            });
+            if (btnCancelDraw) {
+                // Never leave Cancel stuck disabled after unlock races
+                try { btnCancelDraw.disabled = false; } catch (_) {}
+                btnCancelDraw.addEventListener('click', function (ev) {
+                    try { if (ev) { ev.preventDefault(); ev.stopPropagation(); } } catch (_) {}
+                    // Red X = same as Esc: always stop continuous measure/draw tools
+                    // and return to Select (tool highlight + status).
+                    const isDrawTool = currentTool &&
+                        currentTool !== 'select' &&
+                        currentTool !== 'move';
+                    const drawingActive =
+                        (polygonPoints && polygonPoints.length > 0) ||
+                        (deductionLinePoints && deductionLinePoints.length > 0) ||
+                        (measurePoints && measurePoints.length > 0) ||
+                        (calibratePoints && calibratePoints.length > 0) ||
+                        !!drawPreview ||
+                        !!continuousTempPreview ||
+                        (continuousDrawPoints && continuousDrawPoints.length > 0) ||
+                        dragMode === 'draw' ||
+                        !!drawStartWorld;
+                    if (drawingActive || isDrawTool) {
+                        exitDrawingMode({ clearSelection: true });
+                        try { if (typeof toast === 'function') toast('Cancelled — back to Select.', 'info'); } catch (_) {}
+                        return;
+                    }
+                    if (selectedIds && selectedIds.length) {
+                        selectedIds = [];
+                        exitDrawingMode({ clearSelection: true });
+                        try { if (typeof toast === 'function') toast('Selection cleared.', 'info'); } catch (_) {}
+                        return;
+                    }
+                    // Idle: still force Select mode so the button always does something visible
+                    exitDrawingMode({ clearSelection: true });
+                    try { if (typeof toast === 'function') toast('Back to Select.', 'info'); } catch (_) {}
+                });
+            }
             const btnDelete = document.getElementById('btnDelete');
             if (btnDelete) btnDelete.addEventListener('click', () => {
                 if (typeof selectedIds !== 'undefined' && selectedIds && selectedIds.length) {
@@ -14300,7 +14308,6 @@
             window.renderCanvas2D = renderCanvas2D;
             window.hideLoadingOverlay = hideLoadingOverlay;
             window.init = init;
-            window.saveState = saveState;
         } catch (_) {}
 
         // Boot: DOMContentLoaded may already have fired by the time this
@@ -14366,17 +14373,13 @@
                 body.scrollTop=body.scrollHeight;
                 const slot=document.getElementById(thinkId);
                 let answer=null;
-                let errHint='';
                 try{
                     const headers=(typeof mcApiHeaders==='function')?mcApiHeaders(true):{'Content-Type':'application/json'};
                     const resp=await fetch('/api/assistant-chat',{method:'POST',headers,body:JSON.stringify({message:q,history:mcAiHistory})});
                     const data=await resp.json().catch(()=>({}));
                     if(resp.ok&&data&&data.success&&data.answer){answer=data.answer}
-                    else if(data&&data.code==='NO_KEY'){errHint=' (Gemini API key not set on server — add GEMINI_API_KEY in Render/.env)'}
-                    else if(resp.status===401){errHint=' (sign in again to refresh your session token)'}
-                    else if(data&&data.error){errHint=' ('+String(data.error).slice(0,120)+')'}
-                }catch(_){errHint=' (network error)'}
-                const finalText=answer||(offlineReply(q)+(errHint?'\n\n[Live AI unavailable'+errHint+']':''));
+                }catch(_){}
+                const finalText=answer||offlineReply(q);
                 if(slot)slot.textContent=finalText;
                 if(answer){mcAiHistory.push({role:'user',text:q},{role:'assistant',text:answer});if(mcAiHistory.length>12)mcAiHistory=mcAiHistory.slice(-12)}
                 body.scrollTop=body.scrollHeight;
